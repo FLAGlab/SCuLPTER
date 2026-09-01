@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Simulador 3D SCuLPT</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: system-ui, sans-serif; }
+  #app { display: grid; grid-template-columns: 220px 1fr 340px; height: 100%; }
+  #paleta { background: #1a1a1a; padding: 12px; overflow-y: auto; }
+  #paleta h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin: 18px 0 8px; }
+  #paleta h2:first-child { margin-top: 0; }
+  .pieza-paleta { background: #2a6f6a; color: #fff; padding: 10px 12px; margin-bottom: 8px; border-radius: 6px; cursor: grab; text-align: center; font-weight: 600; user-select: none; }
+  .pieza-paleta:active { cursor: grabbing; }
+  #escena { position: relative; }
+  #escena canvas { display: block; }
+  #panel { background: #1a1a1a; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  #panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin: 0 0 8px; }
+  #lista-programa { display: flex; flex-direction: column; gap: 6px; }
+  .linea-programa { background: #242424; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; font-family: ui-monospace, monospace; font-size: 13px; }
+  .linea-programa span { flex: 1; }
+  .linea-programa button { background: #333; color: #eee; border: none; border-radius: 4px; width: 22px; height: 22px; cursor: pointer; }
+  .linea-programa button:hover { background: #444; }
+  #resultado { background: #242424; border-radius: 6px; padding: 10px; font-family: ui-monospace, monospace; font-size: 12.5px; white-space: pre-wrap; line-height: 1.5; }
+  #resultado.valido { border-left: 4px solid #3fae7a; }
+  #resultado.invalido { border-left: 4px solid #c85a4a; }
+  #codigo-generado { background: #242424; border-radius: 6px; padding: 10px; font-family: ui-monospace, monospace; font-size: 12.5px; white-space: pre-wrap; min-height: 40px; }
+  #vacio { color: #666; font-size: 13px; text-align: center; padding: 20px 0; }
+  #estado-camara { font-size: 12.5px; padding: 6px 10px; border-radius: 4px; text-align: center; }
+  #estado-camara.conectado { background: #1f4a3a; color: #7bd6ac; }
+  #estado-camara.desconectado { background: #4a2b1f; color: #d69b7b; }
+  #interruptor-camara { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #ccc; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="paleta">
+    <h2>Binarias</h2>
+    <div class="pieza-paleta" draggable="true" data-token="PUSH">PUSH</div>
+    <div class="pieza-paleta" draggable="true" data-token="MOV">MOV</div>
+    <h2>Unarias / mixtas</h2>
+    <div class="pieza-paleta" draggable="true" data-token="POP">POP</div>
+    <div class="pieza-paleta" draggable="true" data-token="DUP">DUP</div>
+    <div class="pieza-paleta" draggable="true" data-token="NEG">NEG</div>
+    <div class="pieza-paleta" draggable="true" data-token="?">? (QUESTION)</div>
+    <div class="pieza-paleta" draggable="true" data-token="JMP">JMP</div>
+    <div class="pieza-paleta" draggable="true" data-token="CMP">CMP</div>
+    <h2>Aritméticas</h2>
+    <div class="pieza-paleta" draggable="true" data-token="ADD">ADD</div>
+    <div class="pieza-paleta" draggable="true" data-token="SUB">SUB</div>
+    <div class="pieza-paleta" draggable="true" data-token="MUL">MUL</div>
+    <div class="pieza-paleta" draggable="true" data-token="DIV">DIV</div>
+    <div class="pieza-paleta" draggable="true" data-token="MOD">MOD</div>
+  </div>
+  <div id="escena"></div>
+  <div id="panel">
+    <div id="estado-camara" class="desconectado">Cámara: desconectada, reintentando...</div>
+    <label id="interruptor-camara">
+      <input type="checkbox" id="camara-activa" />
+      Dejar que la cámara reemplace el programa
+    </label>
+    <div>
+      <h2>Programa construido</h2>
+      <div id="lista-programa"></div>
+      <div id="vacio">Arrastra una pieza a la mesa para empezar</div>
+    </div>
+    <div>
+      <h2>Texto SCuLPT reconstruido</h2>
+      <div id="codigo-generado"></div>
+    </div>
+    <div>
+      <h2>Intérprete real</h2>
+      <div id="resultado"></div>
+    </div>
+  </div>
+</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
