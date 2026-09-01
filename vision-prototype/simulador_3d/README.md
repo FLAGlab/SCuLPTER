@@ -1,57 +1,19 @@
-# Simulador 3D SCuLPT
+# 3D Simulator SCuLPT
 
-Simulación de mesa de construcción: arrastras una operación desde la
-paleta, le asignas sus operandos, y aparece en la escena con la geometría
-STL real (`modelos/`, copiada de `/Users/carlagonzalez/SCuLPT/STLs`). El
-programa se reconstruye y se valida en cada cambio contra el **intérprete
-real de SCuLPTER, compilado a JavaScript sin modificarlo**
-(`interprete.js`, generado desde `src/main/scala/sculpter/*.scala` +
-`PuenteJS.scala` con `scala-cli --js`).
+A build-table simulation: drag an operation from the palette, assign its
+operands, and it shows up in the scene with the real STL geometry
+(`modelos/`). Every change is rebuilt and validated against the real
+SCuLPTER interpreter, compiled to JavaScript unmodified
+(`interprete.js`, generated from `src/main/scala/sculpter/*.scala` +
+`PuenteJS.scala`).
 
-## Cómo correrlo
+## Setup
 
-Los módulos ES y la carga de los `.stl` necesitan HTTP, no `file://`:
-
-```bash
-cd vision-prototype/simulador_3d
-python3 -m http.server 8000
-```
-
-Abrir `http://localhost:8000` en el navegador.
-
-## Modo cámara en vivo
-
-Además del arrastre manual, la página se conecta automáticamente a
-`ws://localhost:8765`. Si corres, en otra terminal:
+`interprete.js` isn't checked in (it's a build artifact) — generate it
+first:
 
 ```bash
-python3 vision-prototype/reconstruir.py --camara 0 --camara 1 --servir-3d
-```
-
-el indicador "Cámara" en el panel derecho pasa a "conectada", y cada vez
-que la mesa real se estabiliza, el programa reconstruido por la(s)
-cámara(s) **reemplaza** lo que hubiera en la escena -- construido a mano o
-por una lectura anterior. Ambas fuentes usan el mismo camino interno
-(`reconstruirTodo` → `sculptEjecutar`), así que no hay dos lógicas de
-validación distintas.
-
-## Qué se simplificó (a propósito)
-
-- Cada arrastre coloca una instrucción completa (operación + operandos),
-  no bloque por bloque conectados físicamente uno a uno. Eso es un paso
-  más de fidelidad para una siguiente versión, no algo que faltara por
-  descuido.
-- Los operandos se piden con un `prompt()` en vez de arrastrar una pieza
-  de parámetro real y conectarla -- la pieza `Parameter v4.stl` sí se
-  muestra en la escena junto a cada operando, pero su valor se escribe,
-  no se arma físicamente.
-- El orden de las instrucciones se controla con los botones ↑/↓ del panel
-  derecho, no reordenando en la escena 3D directamente.
-
-## Regenerar `interprete.js` tras cambiar el lenguaje
-
-```bash
-cd /Users/carlagonzalez/SCuLPTER
+cd /path/to/SCuLPTER
 scala-cli package --power --js --js-module-kind es \
   src/main/scala/sculpter/Tokens.scala \
   src/main/scala/sculpter/AST.scala \
@@ -62,6 +24,43 @@ scala-cli package --power --js --js-module-kind es \
   -o vision-prototype/simulador_3d/interprete.js --force
 ```
 
-`PuenteJS.scala` es el único archivo nuevo: expone `sculptEjecutar(codigo)`
-como función global de JS. No toca ni duplica `Lexer`, `Parser` ni
-`Interpreter` -- los importa tal cual.
+`PuenteJS.scala` is the only new file — it exposes `sculptEjecutar(codigo)`
+as a global JS function. It imports `Lexer`/`Parser`/`Interpreter` as-is,
+doesn't touch or duplicate them. Re-run this whenever the language changes.
+
+## Running it
+
+ES modules and `.stl` loading need HTTP, not `file://`:
+
+```bash
+cd vision-prototype/simulador_3d
+python3 -m http.server 8000
+```
+
+Open `http://localhost:8000`.
+
+## Live camera mode
+
+Besides manual drag, the page auto-connects to `ws://localhost:8765`. Run,
+in another terminal:
+
+```bash
+python3 vision-prototype/reconstruir.py --camara 0 --camara 1 --servir-3d
+```
+
+The "Camera" indicator on the right panel flips to "connected", and every
+time the physical table settles, the reconstructed program **replaces**
+whatever was in the scene — hand-built or from a previous reading. Both
+paths go through the same code (`reconstruirTodo` → `sculptEjecutar`), so
+there's no separate validation logic for each.
+
+## What's simplified, on purpose
+
+- Each drag places a full instruction (operation + operands), not
+  individual connected blocks. A fidelity step for a later version, not an
+  oversight.
+- Operands are entered via `prompt()` instead of dragging and connecting a
+  real parameter piece — the `Parameter v4.stl` piece does show up next to
+  each operand, but its value is typed, not physically assembled.
+- Instruction order is controlled with the ↑/↓ buttons on the right panel,
+  not by reordering in the 3D scene directly.

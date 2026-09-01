@@ -1,3 +1,4 @@
 imagenes_prueba/*.png
 camara_*.jpg
 __pycache__/
+simulador_3d/interprete.js
