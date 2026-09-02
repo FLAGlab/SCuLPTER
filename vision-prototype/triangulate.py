@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from calibrate_cameras import load_intrinsics
+from adjacency import build_chain
 import reconstruir
 
 INTERVAL_S = 0.5
@@ -79,6 +80,12 @@ def report(points, warnings) -> None:
         print(f"  ! {warning}")
     if not points:
         print("  (no matched detections)")
+        return
+
+    chain, chain_warnings = build_chain(points)
+    print("[chain]  " + " -> ".join(chain))
+    for warning in chain_warnings:
+        print(f"  ! {warning}")
 
 
 def run_static(image_a: str, image_b: str, proj_a, proj_b, mtx_a, dist_a, mtx_b, dist_b) -> None:
