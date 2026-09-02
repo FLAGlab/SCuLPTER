@@ -65,7 +65,7 @@ def detectar_regiones_por_contorno(cuadro):
 
 def detectar_en_cuadro(cuadro):
     if not clasificador_simbolos.hay_referencias():
-        return [], ["carpeta referencias/ vacía -- nada que reconocer todavía"]
+        return [], ["carpeta referencias/ vacía nada que reconocer todavía"]
 
     detecciones = []
     avisos = []
