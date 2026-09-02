@@ -29,6 +29,8 @@ AREA_MINIMA_FRACCION = 0.002
 PUERTO_WEBSOCKET = 8765
 INTERVALO_CLASIFICACION_S = 0.35
 ANCHO_TRABAJO_PX = 640
+TAMANO_BLOQUE_UMBRAL = 35
+CONSTANTE_UMBRAL = 7
 
 
 def reducir_resolucion(cuadro):
@@ -42,7 +44,10 @@ def reducir_resolucion(cuadro):
 def detectar_regiones_por_contorno(cuadro):
     gris = cv2.cvtColor(cuadro, cv2.COLOR_BGR2GRAY)
     difuminado = cv2.GaussianBlur(gris, (5, 5), 0)
-    _, binaria = cv2.threshold(difuminado, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    binaria = cv2.adaptiveThreshold(
+        difuminado, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,
+        TAMANO_BLOQUE_UMBRAL, CONSTANTE_UMBRAL,
+    )
     contornos, _ = cv2.findContours(binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     alto_cuadro, ancho_cuadro = gris.shape
