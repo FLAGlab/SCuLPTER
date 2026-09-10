@@ -1,0 +1,439 @@
+{
+  "synthetic": true,
+  "catalog": {
+    "schemaVersion": 1,
+    "units": "mm",
+    "connectionToleranceMm": 2,
+    "normalToleranceDegrees": 10,
+    "models": {
+      "body_2": {
+        "kind": "body",
+        "verified": true,
+        "ports": [
+          {
+            "id": "in",
+            "type": "flow_in",
+            "position": [
+              0,
+              0,
+              -30
+            ],
+            "normal": [
+              0,
+              0,
+              -1
+            ],
+            "slot": null
+          },
+          {
+            "id": "out",
+            "type": "flow_out",
+            "position": [
+              0,
+              0,
+              30
+            ],
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "slot": null
+          },
+          {
+            "id": "op",
+            "type": "operation_slot",
+            "position": [
+              0,
+              10,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "slot": null
+          },
+          {
+            "id": "p0",
+            "type": "parameter_slot",
+            "position": [
+              20,
+              0,
+              -10
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "slot": 0
+          },
+          {
+            "id": "p1",
+            "type": "parameter_slot",
+            "position": [
+              20,
+              0,
+              10
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "slot": 1
+          },
+          {
+            "id": "support",
+            "type": "support_in",
+            "position": [
+              -20,
+              0,
+              0
+            ],
+            "normal": [
+              -1,
+              0,
+              0
+            ],
+            "slot": null
+          }
+        ]
+      },
+      "operation": {
+        "kind": "operation",
+        "verified": true,
+        "ports": [
+          {
+            "id": "plug",
+            "type": "operation_plug",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              -1,
+              0
+            ],
+            "slot": null
+          }
+        ]
+      },
+      "parameter": {
+        "kind": "parameter",
+        "verified": true,
+        "ports": [
+          {
+            "id": "plug",
+            "type": "parameter_plug",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              -1,
+              0,
+              0
+            ],
+            "slot": null
+          }
+        ]
+      },
+      "connector": {
+        "kind": "connector",
+        "verified": true,
+        "ports": [
+          {
+            "id": "in",
+            "type": "flow_in",
+            "position": [
+              0,
+              0,
+              -10
+            ],
+            "normal": [
+              0,
+              0,
+              -1
+            ],
+            "slot": null
+          },
+          {
+            "id": "out",
+            "type": "flow_out",
+            "position": [
+              0,
+              0,
+              10
+            ],
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "slot": null
+          }
+        ]
+      },
+      "support": {
+        "kind": "support",
+        "verified": true,
+        "ports": [
+          {
+            "id": "out",
+            "type": "support_out",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "slot": null
+          }
+        ]
+      }
+    }
+  },
+  "scenes": [
+    {
+      "pieces": [
+        {
+          "id": "b0",
+          "model": "body_2",
+          "kind": "body",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              80.0,
+              50.0,
+              100.0
+            ]
+          }
+        },
+        {
+          "id": "o0",
+          "model": "operation",
+          "kind": "operation",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              78.9104103565376,
+              58.84000126763485,
+              104.54611614425697
+            ]
+          },
+          "reading": {
+            "text": "PUSH",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "p0-0",
+          "model": "parameter",
+          "kind": "parameter",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              85.80377328907937,
+              60.43729137475029,
+              81.0955252818934
+            ]
+          },
+          "reading": {
+            "text": "a",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "p0-1",
+          "model": "parameter",
+          "kind": "parameter",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              100.64744151689558,
+              55.79945421851856,
+              93.6715333947564
+            ]
+          },
+          "reading": {
+            "text": "5",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "b1",
+          "model": "body_2",
+          "kind": "body",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              124.53100468344863,
+              36.08648853130481,
+              137.728024338589
+            ]
+          }
+        },
+        {
+          "id": "o1",
+          "model": "operation",
+          "kind": "operation",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              123.44141503998623,
+              44.926489798939656,
+              142.27414048284595
+            ]
+          },
+          "reading": {
+            "text": "PUSH",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "p1-0",
+          "model": "parameter",
+          "kind": "parameter",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              130.334777972528,
+              46.5237799060551,
+              118.82354962048238
+            ]
+          },
+          "reading": {
+            "text": "a",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "p1-1",
+          "model": "parameter",
+          "kind": "parameter",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              145.17844620034424,
+              41.88594274982337,
+              131.39955773334538
+            ]
+          },
+          "reading": {
+            "text": "10",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "b2",
+          "model": "body_2",
+          "kind": "body",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              169.06200936689726,
+              22.172977062609625,
+              175.456048677178
+            ]
+          }
+        },
+        {
+          "id": "o2",
+          "model": "operation",
+          "kind": "operation",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              167.97241972343485,
+              31.01297833024447,
+              180.00216482143495
+            ]
+          },
+          "reading": {
+            "text": "ADD",
+            "accepted": true,
+            "confidence": 1
+          }
+        },
+        {
+          "id": "p2-0",
+          "model": "parameter",
+          "kind": "parameter",
+          "pose": {
+            "rvec": [
+              0.4,
+              0.8,
+              0.3
+            ],
+            "tvec": [
+              174.86578265597666,
+              32.61026843735991,
+              156.55157395907136
+            ]
+          },
+          "reading": {
+            "text": "a",
+            "accepted": true,
+            "confidence": 1
+          }
+        }
+      ]
+    }
+  ]
+}

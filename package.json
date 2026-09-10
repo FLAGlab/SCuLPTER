@@ -11,7 +11,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "build:interpreter": "node scripts/build-interpreter.mjs",
+    "test:runtime": "node --test tests/runtime.test.mjs",
+    "test:vision": "python3 -m unittest discover -s vision-prototype/tests",
+    "test": "npm run build:interpreter && npm run test:runtime && npm run test:vision",
+    "build:ocr": "node scripts/build-ocr.mjs"
   },
   "devDependencies": {
     "@scala-js/vite-plugin-scalajs": "^1.0.0",
