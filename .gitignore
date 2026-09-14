@@ -17,3 +17,22 @@ dist/
 CLAUDE.md
 # scala-cli build cache (created when running vision-prototype/ejecutor_scala)
 .scala-build/
+
+# LaTeX build files (vision-prototype/docs); the .tex and the .pdf stay tracked
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.nav
+*.snm
+*.vrb
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)

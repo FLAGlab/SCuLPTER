@@ -4,6 +4,74 @@ Reconstructs a SCuLPT program from one or more cameras pointed at the real
 physical blocks (no markers), and runs it on the real SCuLPTER interpreter,
 unmodified.
 
+## Concept map
+
+How the pieces relate, by domain. Solid arrows are "feeds into"; the full
+map, with every concept explained, is the interactive
+[docs/grafo-conceptos.html](docs/grafo-conceptos.html) (open it in a
+browser; it needs internet for d3). A written overview is in
+[docs/alcance.pdf](docs/alcance.pdf).
+
+```mermaid
+%%{init: {'theme': 'neutral'}}%%
+flowchart LR
+  subgraph L["Lenguaje"]
+    SCuLPT --> Bloque["Bloque de código"]
+    Bloque --> Op["Ficha de operación"]
+    Bloque --> Par["Ficha de parámetro"]
+    SCuLPT --> Loop["Loop estructural"]
+    SCuLPT --> SCuLPTER
+    SCuLPTER --> Lexer --> Parser --> Interp["Intérprete"]
+  end
+
+  subgraph V["Visión"]
+    Cam["Cámara"] --> Reg["Detección de regiones"]
+    Reg --> Filt["Filtro geométrico"]
+    Filt --> TM["Template matching"]
+    Tinta["Normalización a tinta"] --> TM
+    Margen["Umbral y margen"] --> TM
+    Tabla["simbolos.json"] --> Ref["referencias/"] --> TM
+  end
+
+  subgraph G["Geometría 3D"]
+    Calib["Calibración estéreo"] --> Epi["Restricción epipolar"]
+    Epi --> Emp["Emparejamiento de duplicados"]
+    Prof["Plausibilidad de profundidad"] --> Emp
+    Emp --> Tri["Triangulación"] --> Mesa["Marco de mesa"]
+  end
+
+  subgraph R["Reconstrucción"]
+    Grafo["Grafo de bloques"] --> Orient["Enumeración de orientaciones"]
+    Orient --> Asig["Asignación de parámetros"] --> Dir["Dirección de lectura"]
+    Orient --> Ciclo["Ciclo a JMP -n"]
+  end
+
+  subgraph E["Evaluación"]
+    Data["Dataset etiquetado"] --> Metr["Precisión, recall, F1"] --> Conf["Confusiones"]
+    Tests["Tests sin cámara"]
+  end
+
+  subgraph S["Simulador"]
+    WS["WebSocket"] --> Escena["Escena three.js"] --> Retorno["Línea de retorno del loop"]
+  end
+
+  Op --> Tabla
+  Par --> Asig
+  Loop --> Ciclo
+  TM --> Filas["Filas de píxeles (2D)"] --> Interp
+  TM --> Emp
+  Mesa --> Grafo
+  Dir --> Interp
+  Ciclo --> Interp
+  Ciclo --> Retorno
+  Mesa --> WS
+  Filas --> WS
+  TM --> Metr
+  Conf --> Ref
+  Tests --> Grafo
+  Tests --> Emp
+```
+
 ## Symbol recognition
 
 Reference photos live in `referencias/`, seeded from the official renders

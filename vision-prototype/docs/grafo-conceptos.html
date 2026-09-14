@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCuLPT Vision, mapa de conceptos</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #fff; color: #000; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #lienzo { position: fixed; inset: 0; }
+  #lienzo svg { width: 100%; height: 100%; display: block; }
+
+  .caja { position: fixed; background: #fff; border: 1px solid #000; padding: 10px 12px; }
+  #controles { top: 12px; left: 12px; width: min(300px, calc(100vw - 24px)); }
+  #controles h1 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+  #controles p { margin: 0 0 8px; font-size: 12px; }
+  #buscar { width: 100%; padding: 5px 7px; border: 1px solid #000; font: inherit; font-size: 13px; }
+  #leyenda { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; columns: 2; }
+  #leyenda label { display: block; cursor: pointer; }
+
+  #panel { top: 12px; right: 12px; bottom: 12px; width: min(360px, calc(100vw - 24px)); overflow-y: auto; display: none; }
+  #panel.abierto { display: block; }
+  #panel .grupo { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #555; }
+  #panel h2 { margin: 2px 0 8px; font-size: 18px; font-weight: 600; }
+  #panel p { margin: 0 0 12px; max-width: 60ch; }
+  #panel h3 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #555; font-weight: 600; }
+  #vecinos { margin: 0; padding: 0; list-style: none; }
+  #vecinos button { display: block; width: 100%; text-align: left; padding: 3px 4px; border: 0; background: none; font: inherit; cursor: pointer; text-decoration: underline; }
+  #cerrar { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 18px; cursor: pointer; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; }
+
+  #pie { bottom: 12px; left: 12px; font-size: 11px; color: #555; }
+
+  .enlace { stroke: #bbb; stroke-width: 1; }
+  .enlace.hi { stroke: #000; stroke-width: 1.5; }
+  .enlace.dim { stroke-opacity: .25; }
+  .nodo circle { fill: #000; cursor: pointer; }
+  .nodo.dim { opacity: .2; }
+  .nodo text { font-size: 11px; fill: #000; pointer-events: none; paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+  .nodo.sel circle { fill: #fff; stroke: #000; stroke-width: 2; }
+
+  @media (max-width: 640px) {
+    #panel { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; max-height: 45vh; }
+    #pie { display: none; }
+    #leyenda { columns: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div id="lienzo"></div>
+
+<section id="controles" class="caja">
+  <h1>SCuLPT Vision, mapa de conceptos</h1>
+  <p>Cada nodo es un concepto del prototipo. Pulsa uno para ver qué es y con qué se relaciona. Arrastra para mover, rueda para acercar.</p>
+  <input id="buscar" type="search" placeholder="Buscar" aria-label="Buscar concepto">
+  <ul id="leyenda"></ul>
+</section>
+
+<aside id="panel" class="caja">
+  <button id="cerrar" aria-label="Cerrar">×</button>
+  <div class="grupo" id="p-grupo"></div>
+  <h2 id="p-titulo"></h2>
+  <p id="p-desc"></p>
+  <h3>Relacionado con</h3>
+  <ul id="vecinos"></ul>
+</aside>
+
+<div id="pie" class="caja"><span id="conteo"></span></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+const GRUPOS = {
+  lenguaje:       { nombre: "Lenguaje" },
+  vision:         { nombre: "Visión" },
+  geometria:      { nombre: "Geometría 3D" },
+  reconstruccion: { nombre: "Reconstrucción" },
+  evaluacion:     { nombre: "Evaluación" },
+  simulador:      { nombre: "Simulador" },
+  articulo:       { nombre: "Artículo" },
+};
+
+// [id, grupo, descripción, peso opcional (tamaño), mono opcional]
+const NODOS = [
+  // ── Lenguaje ──────────────────────────────────────────────────────────
+  ["SCuLPT", "lenguaje", "Lenguaje de programación tangible: los programas son esculturas de bloques impresos en 3D. Turing completo con un conjunto mínimo de instrucciones y pilas como única estructura de datos.", 3],
+  ["SCuLPTER", "lenguaje", "Intérprete de texto de SCuLPT, escrito en Scala y compilado a JavaScript (Scala.js). Ejecuta paso a paso y muestra el estado de las pilas. Su definición (Tokens, Lexer, Parser, AST, Interpreter) no se modifica en este proyecto.", 3],
+  ["Bloque de código", "lenguaje", "Una instrucción física. La ficha de operación va en el extremo elevado izquierdo y los parámetros después, así que el flujo va de la operación hacia sus parámetros y de ahí al bloque siguiente. Esta anatomía es la que usa la reconstrucción para deducir la dirección de lectura.", 2],
+  ["Ficha de operación", "lenguaje", "Ficha que fija qué hace el bloque. En los bloques reales va dibujada a mano con marcador: ↓ para PUSH, + para ADD, ↻ (por confirmar) para JMP."],
+  ["Ficha de parámetro", "lenguaje", "Ficha de melamina escrita a mano: nombre de pila (♡, ○) o literal (1, 3, 10). Se pega al bloque detrás de la operación; su posición es la pista que resuelve la dirección de lectura."],
+  ["Pila (LIFO)", "lenguaje", "Única estructura de datos. Las pilas se nombran con símbolos; como el Lexer solo acepta identificadores ASCII, ♡ se emite como heart y ○ como circle."],
+  ["Literal", "lenguaje", "Enteros (en SCuLPTER, racionales) y el valor vacío #, escrito nil. Un literal se usa como segundo parámetro de PUSH y de las operaciones aritméticas o de comparación."],
+  ["nil / #", "lenguaje", "Valor vacío. Lo produce DUP o MOV sobre pila vacía y la división por cero. La aritmética con # detiene el programa; CMP lo acepta y sirve para probar si un valor es #."],
+  ["Conector T", "lenguaje", "Conector que cierra loops físicos. El flujo va por el tallo largo, del extremo plano al redondo; si no hay bloque en el extremo plano, entra por el tallo corto."],
+  ["Loop estructural", "lenguaje", "Loop representado físicamente por un ciclo de bloques cerrado con un conector T. SCuLPTER no puede escribirlo; la reconstrucción lo traduce a un JMP negativo.", 2],
+  ["PUSH", "lenguaje", "PUSH S n: apila el literal n en S. El segundo parámetro siempre es literal; mover valores entre pilas es tarea de MOV.", 1, true],
+  ["MOV", "lenguaje", "MOV S1 S2: saca el tope de S2 (origen) y lo apila en S1 (destino). Destino primero, origen segundo, en todo el artículo y el intérprete.", 1, true],
+  ["JMP", "lenguaje", "JMP k: mueve el contador de programa k posiciones; k puede ser literal o el tope de una pila. El intérprete hace pc = pc + k, así que un salto desde la posición j hasta la t lleva k = t − j.", 2, true],
+  ["? (question)", "lenguaje", "? S: saca el tope de S; si es ≥ 0 ejecuta la siguiente instrucción, si es negativo o # la salta. Es el único condicional; no hay ramificación física.", 1, true],
+  ["CMP", "lenguaje", "CMP S / CMP S n: compara el tope con el siguiente elemento o con un literal y apila 1, 0 o −1. Con exactamente un operando # da #; con dos da 1, que es la prueba idiomática de vacío.", 1, true],
+  ["Aritmética", "lenguaje", "ADD, SUB, MUL, DIV, MOD, NEG sobre una pila (o con un literal como segundo operando). El tope es el operando izquierdo. División y módulo por cero apilan #.", 1, true],
+  ["Lexer", "lenguaje", "Tokeniza el .scu: palabras clave en mayúsculas o minúsculas, números, identificadores ASCII para pilas, ? y −. Cualquier otro carácter es error, por eso los símbolos manuscritos se traducen antes.", 1, true],
+  ["Parser", "lenguaje", "Construye el AST: sentencias unarias (JMP, ?, POP, DUP, NEG) y binarias (PUSH, MOV, CMP, aritmética). Un JMP sin operando es error de sintaxis (RESULT INVALID parser).", 1, true],
+  ["Intérprete", "lenguaje", "Ejecuta paso a paso (stepForward / stepBackward) manteniendo el historial de pilas. Es el mismo código que corre en la web, en scala-cli desde Python y compilado a interprete.js.", 2, true],
+  ["Programa .scu", "lenguaje", "Texto SCuLPTER: una instrucción por línea, como un ensamblador. Es lo que produce la reconstrucción y lo que consume el intérprete.", 1, true],
+
+  // ── Visión ────────────────────────────────────────────────────────────
+  ["Cámara", "vision", "Cualquier índice OpenCV o URL de vídeo. En macOS el iPhone aparece por Continuity Camera; el permiso de cámara se concede a la app desde la que se lanza Python (VS Code, Terminal)."],
+  ["Detección de regiones", "vision", "Umbral adaptativo gaussiano + contornos externos sobre el cuadro en gris. Cada contorno con área suficiente es una región candidata a ficha.", 2],
+  ["Filtro geométrico", "vision", "Descarta regiones que no pueden ser fichas: área menor que 0,2 % o mayor que 15 % del cuadro, o proporción ancho/alto mayor que 1,8 (las fichas son cuadradas). Elimina la caja de cartón y el borde de la mesa."],
+  ["Template matching", "vision", "Correlación normalizada (TM_CCOEFF_NORMED) entre la región y cada plantilla. Es invariante a brillo y contraste globales, no a rotación ni a fondo.", 2],
+  ["Normalización a tinta", "vision", "Antes de comparar, ficha y plantilla se reducen a su trazo oscuro: umbral Otsu, recorte a la caja de la tinta, centrado en cuadrado, 64×64. Comparar fichas enteras hacía que ADD y SUB correlacionaran a 0,87 porque dominaba el contorno del cuadrado; solo tinta baja a 0,65.", 2],
+  ["Banco de rotaciones", "vision", "Cada plantilla se guarda rotada de −40° a +40° en pasos de 8°, porque la correlación simple falla a partir de unos 20° de giro de la cámara."],
+  ["Umbral y margen", "vision", "Una región se acepta si su mejor candidato supera 0,45 y le saca 0,08 al segundo. Una mancha que se parece 0,47 a JMP y 0,45 a MOV no se parece a ninguno.", 2],
+  ["Falsos positivos", "vision", "Con las plantillas del render, cualquier mancha cuadrada llegaba a 0,45 con varias plantillas a la vez (la primera lectura real dio JMP y MOV de la nada). Motivaron la normalización a tinta, el margen y el filtro geométrico."],
+  ["referencias/", "vision", "Fotos plantilla, una por símbolo, nombradas según simbolos.json. Hoy vienen del render oficial y no coinciden con los símbolos manuscritos; hay que reemplazarlas con fotos de las fichas reales.", 2, true],
+  ["simbolos.json", "vision", "Tabla símbolo manuscrito → lexema SCuLPTER, con tipo (operación, pila, literal), cómo se dibuja y si está confirmado. La leen el clasificador, la reconstrucción y la herramienta de captura.", 2, true],
+  ["capturar_referencias.py", "vision", "Recorre simbolos.json y, para cada símbolo sin foto, muestra la cámara: ESPACIO congela, se arrastra un recuadro sobre la ficha, ENTER guarda referencias/<archivo>.jpg.", 1, true],
+  ["reconstruir.py", "vision", "Pipeline 2D: cámaras sin calibrar, elige la vista con más símbolos, agrupa detecciones por filas de píxeles y las ordena de izquierda a derecha; espera a que la mesa esté quieta y ejecuta el .scu en el intérprete. Sirve el simulador por WebSocket.", 2, true],
+  ["Reconstrucción por filas", "vision", "Cada fila de píxeles (tolerancia 40 px) es una instrucción; dentro de la fila, el orden es de izquierda a derecha, que coincide con operación → parámetros. Solo funciona con programas planos."],
+  ["Estabilidad de mesa", "vision", "Solo se reporta una lectura cuando las posiciones no se mueven más de 6 px durante 0,8 s, para no ejecutar mientras se están colocando bloques."],
+  ["--guardar-regiones", "vision", "Modo de depuración: vuelca cada región detectada como PNG con su veredicto y mejor puntaje. Es lo primero que mirar antes de tocar umbrales.", 1, true],
+
+  // ── Geometría 3D ──────────────────────────────────────────────────────
+  ["Calibración intrínseca", "geometria", "Por cámara, con ≥ 15 vistas del tablero: matriz K (focal, centro óptico) y coeficientes de distorsión. cv2.calibrateCamera."],
+  ["Calibración extrínseca", "geometria", "Rotación y traslación de la cámara A a la B, con el tablero visible en ambas. cv2.stereoCalibrate con intrínsecos fijos. Se repite si se mueve una cámara.", 2],
+  ["Tablero de ajedrez", "geometria", "9×6 esquinas interiores, cuadros de 25 mm. En la primera muestra estéreo debe estar plano sobre la mesa: su pose define el marco de mesa."],
+  ["Matriz fundamental", "geometria", "F = K_b⁻ᵀ [t]ₓ R K_a⁻¹. Para un punto en A, F·x_a es la recta de B donde debe estar su pareja."],
+  ["Restricción epipolar", "geometria", "Una detección en B solo puede ser pareja de una en A si cae a menos de 15 px de su línea epipolar. Elimina la mayoría de emparejamientos falsos entre símbolos repetidos.", 2],
+  ["Plausibilidad de profundidad", "geometria", "Varios PUSH en una misma fila caen sobre la misma línea epipolar y la restricción no los distingue. Una pareja incorrecta triangula a una profundidad absurda respecto a la mediana de los símbolos no ambiguos, y eso decide.", 2],
+  ["Emparejamiento de duplicados", "geometria", "Por lexema: matriz de coste (distancia epipolar + desviación de profundidad) y asignación óptima por permutaciones hasta 7 repeticiones, voraz después."],
+  ["Triangulación", "geometria", "cv2.triangulatePoints con las matrices de proyección de ambas cámaras sobre puntos sin distorsión. Da milímetros en el marco de la cámara A.", 2],
+  ["Marco de mesa", "geometria", "Sistema con x, y sobre la superficie y z hacia arriba, recuperado de la pose del tablero (solvePnP) en la primera muestra estéreo. Los puntos triangulados se expresan aquí antes de reconstruir y de enviar al simulador.", 2],
+  ["Ajuste de plano (SVD)", "geometria", "Respaldo si la calibración no guardó la pose: se ajusta un plano a los propios puntos y la normal se orienta hacia la cámara. Exacto para programas planos, aproximado para esculturas altas."],
+  ["triangulate.py", "geometria", "Pipeline 3D: dos cámaras calibradas → detección → emparejamiento → triangulación → marco de mesa → build_instructions → intérprete. Con --servir-3d manda posiciones al simulador.", 2, true],
+  ["Marigold V2", "geometria", "Profundidad monocular con diffusion transformer (SIGGRAPH Asia 2026). Evaluado y descartado por ahora: exige GPU CUDA de 17 GB, da profundidad relativa sin escala y no identifica símbolos. Referencia para una futura reconstrucción con una sola cámara."],
+
+  // ── Reconstrucción ────────────────────────────────────────────────────
+  ["adjacency.py", "reconstruccion", "Convierte puntos 3D etiquetados en un programa: separa operaciones de parámetros, construye el grafo de bloques, prueba orientaciones, asigna parámetros y emite el .scu con posiciones.", 3, true],
+  ["Grafo de bloques", "reconstruccion", "Dos fichas de operación son bloques consecutivos si distan el paso de bloque: 60 mm ± 15 (pendiente de medir en los bloques impresos, incluido el paso a través de un conector T).", 2],
+  ["Enumeración de orientaciones", "reconstruccion", "Se recorren todas las cadenas posibles del grafo (cada rama en una unión T) y, para las lineales, también al revés, porque el grafo no dice qué extremo es el inicio."],
+  ["Asignación de parámetros", "reconstruccion", "Bajo una orientación, una ficha pertenece al bloque cuya operación está justo antes de ella a lo largo del flujo (proyección sobre el segmento, ≥ 5 mm y < un paso, a ≤ 25 mm del eje). Asignar 'al más cercano' fallaba: con paso de 60 mm una ficha en mitad del bloque es equidistante.", 2],
+  ["Dirección de lectura", "reconstruccion", "No es observable en las operaciones solas. Gana la orientación bajo la cual cada ficha cae justo después de su operación (menos fichas sueltas, menos asignaciones por cercanía, menor distancia). Sin fichas se avisa 'direction unconfirmed'.", 2],
+  ["Ciclo → JMP −n", "reconstruccion", "Si el recorrido termina en un bloque vecino de uno ya visitado, hay un loop físico: se añade JMP (destino − posición) al final. Verificado contra el intérprete: tras el JMP el contador vuelve al bloque de reingreso.", 2],
+  ["build_instructions", "reconstruccion", "Salida estructurada: token, operandos, posición (mm) de la operación, dirección del flujo, posiciones de las fichas. El JMP de un loop no tiene bloque: va como virtual con su destino.", 1, true],
+  ["test_points/", "reconstruccion", "Conjuntos de puntos sintéticos (cadena, cadena invertida, loop, loop con prefijo, rama ambigua, bloque aislado…) para probar adjacency.py sin cámaras.", 1, true],
+  ["Paso de bloque", "reconstruccion", "Distancia centro a centro entre fichas de operación de bloques conectados. Hoy 60 mm por el modelo del simulador; hay que medirla con regla en recto y a través de un conector T."],
+
+  // ── Evaluación ────────────────────────────────────────────────────────
+  ["capture_dataset.py", "evaluacion", "Guarda imágenes etiquetadas con el programa esperado (instrucciones separadas por ';'), autor, sesión y split, en un manifest.jsonl.", 1, true],
+  ["evaluar_dataset.py", "evaluacion", "Corre la detección sobre cada imagen del manifiesto y compara con lo esperado. Informe en consola y JSON para las tablas del artículo.", 2, true],
+  ["Precisión / recall / F1", "evaluacion", "Por lexema y globales (micro), contando símbolos sin importar posición. Lo que se pierde necesita mejor plantilla o umbral más bajo; lo que se confunde necesita un dibujo más distinto.", 2],
+  ["Confusiones", "evaluacion", "Qué se leyó en lugar de qué: SUB → MUL, DUP → (nada), (nada) → JMP. Es la lista de qué corregir primero."],
+  ["Programa exacto", "evaluacion", "Fracción de imágenes cuyo .scu reconstruido coincide línea a línea con el esperado, y fracción de instrucciones acertadas."],
+  ["Tests (22)", "evaluacion", "unittest sin cámaras: puntos → programa, pipeline estéreo con cámaras virtuales, clasificador, filtros de región, marco de mesa, evaluador. python3 -m unittest discover -s vision-prototype/tests.", 2],
+  ["Cámaras virtuales", "evaluacion", "En los tests, dos cámaras sintéticas proyectan un programa conocido (con PUSH y heart repetidos, barajados); la pipeline debe recuperar el .scu exacto y cada punto a < 1 mm."],
+  ["Varios autores", "evaluacion", "Recomendación para el dataset: que más de una persona escriba las fichas (--writer) y evaluar por autor. Si el reconocedor solo funciona con una letra, los revisores lo preguntarán."],
+
+  // ── Simulador ─────────────────────────────────────────────────────────
+  ["Simulador 3D", "simulador", "Mesa virtual en three.js con la geometría STL real de los bloques. Se arrastran operaciones desde una paleta o se recibe lo que leen las cámaras; cada cambio se valida con el intérprete.", 3],
+  ["WebSocket 8765", "simulador", "ws://localhost:8765. reconstruir.py y triangulate.py sirven el mismo socket; la página se reconecta sola. Mensaje: {tipo: 'programa', instrucciones: [...]}.", 1, true],
+  ["interprete.js", "simulador", "El intérprete compilado a JavaScript con Scala.js; PuenteJS.scala solo expone sculptEjecutar(codigo). Se regenera con scala-cli cuando cambia el lenguaje.", 1, true],
+  ["Colocación física", "simulador", "Si las instrucciones traen posición, los bloques van donde están de verdad (mm 1:1), girados según la dirección del flujo. Mapeo mesa → escena: (x, y, z) → (x, z, −y).", 2],
+  ["Línea de retorno", "simulador", "El JMP virtual de un loop no tiene bloque: se dibuja como curva amarilla desde el último bloque hasta el de reingreso, etiquetada JMP −n."],
+  ["Modelos STL", "simulador", "bloque_1_param, bloque_2_param, parametro, conector. Pendiente confirmar a lo largo de qué eje se extiende el bloque para que el giro por dirección coincida."],
+
+  // ── Artículo ──────────────────────────────────────────────────────────
+  ["Artículo SCuLPT", "articulo", "'The art of programming with SCuLPT': presenta el lenguaje, SCuLPTER, la prueba de Turing-completitud y un estudio con usuarios. Este prototipo es su trabajo futuro sobre reconocimiento de esculturas.", 3],
+  ["Revisores", "articulo", "Pidieron related work (Forth, Thyrd, littleBits), consistencia de MOV/PUSH/CMP/JMP, menos Turing-completitud, más detalle de evaluación y foco en la sintaxis tangible."],
+  ["par:state", "articulo", "Párrafo de trabajo futuro: SCuLPTER ayuda a seguir el estado del programa, pero es solución parcial; el objetivo es reconocer la escultura y ejecutarla. Es exactamente lo que construye vision-prototype/."],
+  ["Fibonacci", "articulo", "Ejemplo del artículo: cuatro PUSH de inicialización y un loop estructural de diez bloques que en SCuLPTER se escribe con JMP −10. Es el patrón que la reconstrucción traduce automáticamente."],
+  ["Turing-completitud", "articulo", "Dos pilas (left, right) simulan la cinta de una máquina de Turing; # es el símbolo blanco. Los revisores la consideran obvia y piden dedicarle menos espacio."],
+  ["Forth / Thyrd / littleBits", "articulo", "Related work añadido en la revisión: lenguajes concatenativos de pila (Forth, Thyrd) y littleBits como lenguaje físico embebido. SCuLPT se puede traducir a Forth."],
+  ["Ramificación física", "articulo", "Sugerencia de los revisores: un conector con dos salidas para el condicional. Descartada por ahora: seguir dos caminos exige mantener dos estados y crece exponencialmente."],
+];
+
+const ENLACES = [
+  // lenguaje
+  ["SCuLPT", "SCuLPTER"], ["SCuLPT", "Bloque de código"], ["SCuLPT", "Pila (LIFO)"], ["SCuLPT", "Conector T"], ["SCuLPT", "Loop estructural"], ["SCuLPT", "Artículo SCuLPT"],
+  ["Bloque de código", "Ficha de operación"], ["Bloque de código", "Ficha de parámetro"], ["Bloque de código", "Dirección de lectura"], ["Bloque de código", "Paso de bloque"],
+  ["Ficha de operación", "simbolos.json"], ["Ficha de operación", "PUSH"], ["Ficha de operación", "Aritmética"], ["Ficha de operación", "JMP"],
+  ["Ficha de parámetro", "Pila (LIFO)"], ["Ficha de parámetro", "Literal"], ["Ficha de parámetro", "Asignación de parámetros"], ["Ficha de parámetro", "Dirección de lectura"],
+  ["Pila (LIFO)", "Lexer"], ["Pila (LIFO)", "MOV"], ["Pila (LIFO)", "PUSH"], ["Literal", "nil / #"], ["Literal", "PUSH"], ["nil / #", "CMP"], ["nil / #", "Aritmética"], ["nil / #", "? (question)"],
+  ["Conector T", "Loop estructural"], ["Loop estructural", "Ciclo → JMP −n"], ["Loop estructural", "JMP"], ["Loop estructural", "Fibonacci"],
+  ["JMP", "Intérprete"], ["JMP", "Ciclo → JMP −n"], ["? (question)", "JMP"], ["CMP", "? (question)"],
+  ["SCuLPTER", "Lexer"], ["SCuLPTER", "Parser"], ["SCuLPTER", "Intérprete"], ["SCuLPTER", "Programa .scu"], ["SCuLPTER", "interprete.js"], ["SCuLPTER", "par:state"],
+  ["Lexer", "Parser"], ["Parser", "Intérprete"], ["Lexer", "simbolos.json"], ["Programa .scu", "Intérprete"], ["Programa .scu", "reconstruir.py"], ["Programa .scu", "adjacency.py"],
+  ["Intérprete", "reconstruir.py"], ["Intérprete", "triangulate.py"], ["Intérprete", "Tests (22)"],
+  // vision
+  ["Cámara", "reconstruir.py"], ["Cámara", "triangulate.py"], ["Cámara", "capturar_referencias.py"], ["Cámara", "capture_dataset.py"], ["Cámara", "Calibración intrínseca"],
+  ["reconstruir.py", "Detección de regiones"], ["reconstruir.py", "Reconstrucción por filas"], ["reconstruir.py", "Estabilidad de mesa"], ["reconstruir.py", "WebSocket 8765"], ["reconstruir.py", "--guardar-regiones"],
+  ["Detección de regiones", "Filtro geométrico"], ["Filtro geométrico", "Template matching"], ["Filtro geométrico", "Falsos positivos"],
+  ["Template matching", "Normalización a tinta"], ["Template matching", "Banco de rotaciones"], ["Template matching", "Umbral y margen"], ["Template matching", "referencias/"],
+  ["Normalización a tinta", "Falsos positivos"], ["Umbral y margen", "Falsos positivos"], ["Falsos positivos", "referencias/"], ["Falsos positivos", "--guardar-regiones"],
+  ["referencias/", "simbolos.json"], ["referencias/", "capturar_referencias.py"], ["simbolos.json", "capturar_referencias.py"], ["simbolos.json", "adjacency.py"],
+  ["Reconstrucción por filas", "Programa .scu"], ["Detección de regiones", "triangulate.py"], ["--guardar-regiones", "evaluar_dataset.py"],
+  // geometria
+  ["Calibración intrínseca", "Calibración extrínseca"], ["Calibración intrínseca", "Tablero de ajedrez"], ["Calibración extrínseca", "Tablero de ajedrez"],
+  ["Calibración extrínseca", "Matriz fundamental"], ["Calibración extrínseca", "Marco de mesa"], ["Calibración extrínseca", "Triangulación"], ["Tablero de ajedrez", "Marco de mesa"],
+  ["Matriz fundamental", "Restricción epipolar"], ["Restricción epipolar", "Emparejamiento de duplicados"], ["Plausibilidad de profundidad", "Emparejamiento de duplicados"], ["Plausibilidad de profundidad", "Triangulación"],
+  ["Emparejamiento de duplicados", "Triangulación"], ["Emparejamiento de duplicados", "PUSH"], ["Triangulación", "Marco de mesa"], ["Marco de mesa", "Ajuste de plano (SVD)"], ["Marco de mesa", "Colocación física"],
+  ["triangulate.py", "Emparejamiento de duplicados"], ["triangulate.py", "Triangulación"], ["triangulate.py", "Marco de mesa"], ["triangulate.py", "adjacency.py"], ["triangulate.py", "WebSocket 8765"], ["triangulate.py", "Cámaras virtuales"],
+  ["Marigold V2", "Marco de mesa"], ["Marigold V2", "par:state"], ["Marigold V2", "Triangulación"],
+  // reconstruccion
+  ["adjacency.py", "Grafo de bloques"], ["adjacency.py", "Enumeración de orientaciones"], ["adjacency.py", "Asignación de parámetros"], ["adjacency.py", "Dirección de lectura"], ["adjacency.py", "Ciclo → JMP −n"], ["adjacency.py", "build_instructions"], ["adjacency.py", "test_points/"],
+  ["Grafo de bloques", "Paso de bloque"], ["Grafo de bloques", "Enumeración de orientaciones"], ["Grafo de bloques", "Conector T"],
+  ["Enumeración de orientaciones", "Dirección de lectura"], ["Enumeración de orientaciones", "Ciclo → JMP −n"], ["Asignación de parámetros", "Dirección de lectura"],
+  ["build_instructions", "Colocación física"], ["build_instructions", "Línea de retorno"], ["build_instructions", "Programa .scu"], ["test_points/", "Tests (22)"], ["Ciclo → JMP −n", "Línea de retorno"], ["Ciclo → JMP −n", "Fibonacci"],
+  // evaluacion
+  ["capture_dataset.py", "evaluar_dataset.py"], ["evaluar_dataset.py", "Precisión / recall / F1"], ["evaluar_dataset.py", "Confusiones"], ["evaluar_dataset.py", "Programa exacto"], ["evaluar_dataset.py", "Detección de regiones"],
+  ["Confusiones", "referencias/"], ["Confusiones", "Umbral y margen"], ["Precisión / recall / F1", "Revisores"], ["capture_dataset.py", "Varios autores"], ["Varios autores", "Revisores"],
+  ["Tests (22)", "Cámaras virtuales"], ["Tests (22)", "evaluar_dataset.py"], ["Tests (22)", "Template matching"], ["Tests (22)", "Filtro geométrico"], ["Tests (22)", "Marco de mesa"], ["Cámaras virtuales", "Emparejamiento de duplicados"],
+  // simulador
+  ["Simulador 3D", "WebSocket 8765"], ["Simulador 3D", "interprete.js"], ["Simulador 3D", "Colocación física"], ["Simulador 3D", "Modelos STL"], ["Simulador 3D", "par:state"],
+  ["Colocación física", "Línea de retorno"], ["Colocación física", "Modelos STL"], ["interprete.js", "Intérprete"],
+  // articulo
+  ["Artículo SCuLPT", "Revisores"], ["Artículo SCuLPT", "par:state"], ["Artículo SCuLPT", "Fibonacci"], ["Artículo SCuLPT", "Turing-completitud"], ["Artículo SCuLPT", "Forth / Thyrd / littleBits"],
+  ["Revisores", "Forth / Thyrd / littleBits"], ["Revisores", "Turing-completitud"], ["Revisores", "Ramificación física"], ["Revisores", "MOV"], ["Ramificación física", "? (question)"], ["Ramificación física", "Conector T"],
+  ["Turing-completitud", "Pila (LIFO)"], ["Turing-completitud", "nil / #"], ["par:state", "adjacency.py"], ["par:state", "reconstruir.py"],
+];
+
+
+const nodos = NODOS.map(([id, grupo, desc, peso = 1]) => ({ id, grupo, desc, peso }));
+const porId = new Map(nodos.map((n) => [n.id, n]));
+const enlaces = ENLACES.filter(([a, b]) => porId.has(a) && porId.has(b)).map(([a, b]) => ({ source: a, target: b }));
+const vecinos = new Map(nodos.map((n) => [n.id, new Set()]));
+for (const { source, target } of enlaces) { vecinos.get(source).add(target); vecinos.get(target).add(source); }
+
+const lienzo = document.getElementById("lienzo");
+const ancho = () => lienzo.clientWidth, alto = () => lienzo.clientHeight;
+const svg = d3.select(lienzo).append("svg").attr("viewBox", [0, 0, ancho(), alto()]);
+const capa = svg.append("g");
+const radio = (n) => 3 + 1.2 * n.peso + 0.3 * vecinos.get(n.id).size;
+
+const enlaceSel = capa.append("g").selectAll("line").data(enlaces).join("line").attr("class", "enlace");
+const nodoSel = capa.append("g").selectAll("g").data(nodos).join("g").attr("class", "nodo").attr("tabindex", 0);
+nodoSel.append("circle").attr("r", radio);
+nodoSel.append("text").attr("dy", (n) => radio(n) + 11).attr("text-anchor", "middle").text((n) => n.id);
+
+const simulacion = d3.forceSimulation(nodos)
+  .force("link", d3.forceLink(enlaces).id((n) => n.id).distance(50).strength(0.5))
+  .force("charge", d3.forceManyBody().strength((n) => -150 - 40 * n.peso))
+  .force("collide", d3.forceCollide().radius((n) => radio(n) + 14))
+  .force("center", d3.forceCenter(ancho() / 2, alto() / 2))
+  .force("x", d3.forceX(ancho() / 2).strength(0.03))
+  .force("y", d3.forceY(alto() / 2).strength(0.03))
+  .on("tick", () => {
+    enlaceSel.attr("x1", (l) => l.source.x).attr("y1", (l) => l.source.y).attr("x2", (l) => l.target.x).attr("y2", (l) => l.target.y);
+    nodoSel.attr("transform", (n) => `translate(${n.x},${n.y})`);
+  });
+
+nodoSel.call(d3.drag()
+  .on("start", (ev, n) => { if (!ev.active) simulacion.alphaTarget(0.3).restart(); n.fx = n.x; n.fy = n.y; })
+  .on("drag", (ev, n) => { n.fx = ev.x; n.fy = ev.y; })
+  .on("end", (ev, n) => { if (!ev.active) simulacion.alphaTarget(0); n.fx = null; n.fy = null; }));
+
+const zoom = d3.zoom().scaleExtent([0.25, 4]).on("zoom", (ev) => capa.attr("transform", ev.transform));
+svg.call(zoom).on("dblclick.zoom", null);
+
+const apagados = new Set();
+let seleccionado = null, hover = null, busqueda = "";
+const visible = (n) => !apagados.has(n.grupo);
+const coincide = (n) => busqueda === "" || n.id.toLowerCase().includes(busqueda) || n.desc.toLowerCase().includes(busqueda);
+
+function pintar() {
+  const foco = hover || seleccionado;
+  const vec = foco ? vecinos.get(foco.id) : null;
+  nodoSel
+    .style("display", (n) => visible(n) ? null : "none")
+    .classed("dim", (n) => (foco && n !== foco && !vec.has(n.id)) || !coincide(n))
+    .classed("sel", (n) => n === seleccionado);
+  enlaceSel
+    .style("display", (l) => visible(l.source) && visible(l.target) ? null : "none")
+    .classed("hi", (l) => foco && (l.source === foco || l.target === foco))
+    .classed("dim", (l) => foco ? !(l.source === foco || l.target === foco) : busqueda !== "" && !(coincide(l.source) && coincide(l.target)));
+}
+
+const panel = document.getElementById("panel");
+document.getElementById("cerrar").onclick = () => { seleccionado = null; panel.classList.remove("abierto"); pintar(); };
+
+function seleccionar(n) {
+  seleccionado = n;
+  document.getElementById("p-grupo").textContent = GRUPOS[n.grupo].nombre;
+  document.getElementById("p-titulo").textContent = n.id;
+  document.getElementById("p-desc").textContent = n.desc;
+  const lista = document.getElementById("vecinos");
+  lista.innerHTML = "";
+  [...vecinos.get(n.id)].map((id) => porId.get(id)).sort((a, b) => a.id.localeCompare(b.id)).forEach((v) => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.textContent = v.id;
+    b.onclick = () => { seleccionar(v); centrar(v); };
+    li.appendChild(b);
+    lista.appendChild(li);
+  });
+  panel.classList.add("abierto");
+  pintar();
+}
+
+function centrar(n) {
+  const t = d3.zoomTransform(svg.node());
+  svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity.translate(ancho() / 2 - n.x * t.k, alto() / 2 - n.y * t.k).scale(t.k));
+}
+
+nodoSel
+  .on("mouseenter", (_, n) => { hover = n; pintar(); })
+  .on("mouseleave", () => { hover = null; pintar(); })
+  .on("click", (ev, n) => { ev.stopPropagation(); seleccionar(n); })
+  .on("keydown", (ev, n) => { if (ev.key === "Enter") seleccionar(n); });
+svg.on("click", () => { seleccionado = null; panel.classList.remove("abierto"); pintar(); });
+
+const leyenda = document.getElementById("leyenda");
+for (const [clave, g] of Object.entries(GRUPOS)) {
+  const li = document.createElement("li");
+  const label = document.createElement("label");
+  const caja = document.createElement("input");
+  caja.type = "checkbox"; caja.checked = true;
+  caja.onchange = () => { if (caja.checked) apagados.delete(clave); else apagados.add(clave); pintar(); };
+  label.appendChild(caja);
+  label.appendChild(document.createTextNode(" " + g.nombre));
+  li.appendChild(label);
+  leyenda.appendChild(li);
+}
+
+const buscar = document.getElementById("buscar");
+buscar.addEventListener("input", () => { busqueda = buscar.value.trim().toLowerCase(); pintar(); });
+buscar.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter") return;
+  const primero = nodos.find((n) => visible(n) && coincide(n) && busqueda !== "");
+  if (primero) { seleccionar(primero); centrar(primero); }
+});
+
+document.getElementById("conteo").textContent = `${nodos.length} conceptos, ${enlaces.length} relaciones`;
+window.addEventListener("resize", () => {
+  svg.attr("viewBox", [0, 0, ancho(), alto()]);
+  simulacion.force("center", d3.forceCenter(ancho() / 2, alto() / 2)).alpha(0.3).restart();
+});
+pintar();
+</script>
+</body>
+</html>
