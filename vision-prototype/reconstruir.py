@@ -225,7 +225,16 @@ async def ejecutar_con_camaras(fuentes: list, una_vez: bool, servidor: ServidorS
     capturas = [cv2.VideoCapture(fuente) for fuente in fuentes]
     for captura, fuente in zip(capturas, fuentes):
         if not captura.isOpened():
-            sys.exit(f"no se pudo abrir la cámara: {fuente}")
+            mensaje = f"no se pudo abrir la cámara: {fuente}"
+            if sys.platform == "darwin":
+                mensaje += (
+                    "\n  en macOS la cámara se autoriza a la app desde la que corres el script "
+                    "(Terminal, iTerm, VS Code...):\n"
+                    "  Ajustes del Sistema > Privacidad y seguridad > Cámara. "
+                    "Si no aparece, ejecuta `tccutil reset Camera` y vuelve a intentarlo.\n"
+                    "  `python3 vision-prototype/listar_camaras.py` muestra los índices disponibles."
+                )
+            sys.exit(mensaje)
 
     print(f"{len(capturas)} cámara(s) activa(s). Presiona 'q' en cualquier ventana para salir.")
     ultima_lectura_estable = None
@@ -324,7 +333,10 @@ async def principal_async() -> None:
 
 
 def principal() -> None:
-    asyncio.run(principal_async())
+    try:
+        asyncio.run(principal_async())
+    except KeyboardInterrupt:
+        print("\ndetenido")
 
 
 if __name__ == "__main__":
