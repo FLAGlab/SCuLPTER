@@ -146,7 +146,17 @@ function agregarInstruccion(token, operandos) {
 }
 
 function reemplazarProgramaDesdeCamara(instrucciones) {
-  programa = instrucciones.map((i) => ({ token: i.token, operandos: i.operandos }));
+  // reconstruir.py (2D) manda solo token/operandos; triangulate.py (3D) añade
+  // dónde está cada bloque en la mesa, en mm, y el JMP virtual de un loop físico.
+  programa = instrucciones.map((i) => ({
+    token: i.token,
+    operandos: i.operandos,
+    posicion: i.posicion || null,
+    direccion: i.direccion || null,
+    posicionesOperandos: i.posiciones_operandos || [],
+    virtual: Boolean(i.virtual),
+    destino: i.destino ?? null,
+  }));
   reconstruirTodo();
 }
 
@@ -171,37 +181,100 @@ function limpiarObjetosColocados() {
   objetosColocados = [];
 }
 
+// Marco de mesa (z hacia arriba, mm) -> escena three.js (y hacia arriba).
+// (x, y, z)_mesa -> (x, z, -y)_escena conserva la orientación de los ejes.
+function aEscena(p, origen) {
+  return new THREE.Vector3(p[0] - origen.x, p[2] - origen.z + 15, -(p[1] - origen.y));
+}
+
+function colocar(objeto, posicion) {
+  objeto.position.copy(posicion);
+  escena.add(objeto);
+  objetosColocados.push(objeto);
+}
+
+function colocarInstruccionEnCuadricula(instruccion, z, x0) {
+  const nombreGeometria = instruccion.operandos.length === 2 ? "bloque_2_param" : "bloque_1_param";
+  colocar(crearPiezaVisual(nombreGeometria, 0x2a6f6a, 60), new THREE.Vector3(x0, 15, z));
+  colocar(crearEtiqueta(instruccion.token), new THREE.Vector3(x0, 55, z));
+  instruccion.operandos.forEach((valor, indiceOperando) => {
+    const x = x0 + (indiceOperando + 1) * 90;
+    colocar(crearPiezaVisual("parametro", 0x8a5a2a, 40), new THREE.Vector3(x, 15, z));
+    colocar(crearEtiqueta(valor), new THREE.Vector3(x, 45, z));
+  });
+}
+
+function colocarInstruccionFisica(instruccion, origen) {
+  const posicion = aEscena(instruccion.posicion, origen);
+  const nombreGeometria = instruccion.operandos.length === 2 ? "bloque_2_param" : "bloque_1_param";
+  const bloque = crearPiezaVisual(nombreGeometria, 0x2a6f6a, 60);
+  if (instruccion.direccion) {
+    // El modelo se extiende a lo largo de +x; giramos ese eje hacia la dirección del flujo.
+    const d = instruccion.direccion;
+    bloque.rotation.y = Math.atan2(d[1], d[0]);
+  }
+  colocar(bloque, posicion);
+  colocar(crearEtiqueta(instruccion.token), posicion.clone().add(new THREE.Vector3(0, 40, 0)));
+
+  instruccion.operandos.forEach((valor, indiceOperando) => {
+    let posicionOperando;
+    if (instruccion.posicionesOperandos[indiceOperando]) {
+      posicionOperando = aEscena(instruccion.posicionesOperandos[indiceOperando], origen);
+    } else {
+      const d = instruccion.direccion || [1, 0, 0];
+      posicionOperando = posicion.clone().add(new THREE.Vector3(d[0], 0, -d[1]).multiplyScalar(20 * (indiceOperando + 1)));
+    }
+    colocar(crearPiezaVisual("parametro", 0x8a5a2a, 25), posicionOperando);
+    colocar(crearEtiqueta(valor), posicionOperando.clone().add(new THREE.Vector3(0, 30, 0)));
+  });
+  return posicion;
+}
+
+function dibujarRetornoDeLoop(desde, hasta, texto) {
+  const alto = new THREE.Vector3(0, 45, 0);
+  const puntos = [desde.clone().add(alto), desde.clone().add(alto).lerp(hasta.clone().add(alto), 0.5).add(new THREE.Vector3(0, 40, 0)), hasta.clone().add(alto)];
+  const curva = new THREE.CatmullRomCurve3(puntos);
+  const geometria = new THREE.BufferGeometry().setFromPoints(curva.getPoints(24));
+  const linea = new THREE.Line(geometria, new THREE.LineBasicMaterial({ color: 0xffc83d }));
+  escena.add(linea);
+  objetosColocados.push(linea);
+  colocar(crearEtiqueta(texto), puntos[1].clone().add(new THREE.Vector3(0, 25, 0)));
+}
+
 function reconstruirEscena3D() {
   limpiarObjetosColocados();
-  const separacionFilas = 140;
-  const separacionColumnas = 90;
-  const inicioZ = -((programa.length - 1) * separacionFilas) / 2;
+  const fisicas = programa.filter((i) => i.posicion);
 
-  programa.forEach((instruccion, indiceFila) => {
-    const z = inicioZ + indiceFila * separacionFilas;
-    const nombreGeometria = instruccion.operandos.length === 2 ? "bloque_2_param" : "bloque_1_param";
-    const bloque = crearPiezaVisual(nombreGeometria, 0x2a6f6a, 60);
-    bloque.position.set(0, 15, z);
-    escena.add(bloque);
-    objetosColocados.push(bloque);
+  if (fisicas.length === 0) {
+    const separacionFilas = 140;
+    const inicioZ = -((programa.length - 1) * separacionFilas) / 2;
+    programa.forEach((instruccion, indice) => colocarInstruccionEnCuadricula(instruccion, inicioZ + indice * separacionFilas, 0));
+    return;
+  }
 
-    const etiquetaOperacion = crearEtiqueta(instruccion.token);
-    etiquetaOperacion.position.set(0, 55, z);
-    escena.add(etiquetaOperacion);
-    objetosColocados.push(etiquetaOperacion);
+  // Centro de la escultura en la mesa y su punto más bajo como suelo.
+  const origen = {
+    x: fisicas.reduce((s, i) => s + i.posicion[0], 0) / fisicas.length,
+    y: fisicas.reduce((s, i) => s + i.posicion[1], 0) / fisicas.length,
+    z: Math.min(...fisicas.map((i) => i.posicion[2])),
+  };
 
-    instruccion.operandos.forEach((valor, indiceOperando) => {
-      const x = (indiceOperando + 1) * separacionColumnas;
-      const parametro = crearPiezaVisual("parametro", 0x8a5a2a, 40);
-      parametro.position.set(x, 15, z);
-      escena.add(parametro);
-      objetosColocados.push(parametro);
-
-      const etiquetaValor = crearEtiqueta(valor);
-      etiquetaValor.position.set(x, 45, z);
-      escena.add(etiquetaValor);
-      objetosColocados.push(etiquetaValor);
-    });
+  const posicionesEscena = [];
+  let filaManual = 0;
+  programa.forEach((instruccion, indice) => {
+    if (instruccion.posicion) {
+      posicionesEscena[indice] = colocarInstruccionFisica(instruccion, origen);
+    } else if (instruccion.virtual && instruccion.destino !== null && indice > 0) {
+      const ultimaFisica = posicionesEscena.slice(0, indice).filter(Boolean).pop();
+      const destino = posicionesEscena[instruccion.destino];
+      if (ultimaFisica && destino) {
+        dibujarRetornoDeLoop(ultimaFisica, destino, [instruccion.token, ...instruccion.operandos].join(" "));
+      }
+    } else {
+      // Instrucciones añadidas a mano mientras hay una lectura física: a un lado, en cuadrícula.
+      colocarInstruccionEnCuadricula(instruccion, filaManual * 140, -300);
+      filaManual += 1;
+    }
   });
 }
 

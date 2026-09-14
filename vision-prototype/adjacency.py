@@ -162,8 +162,15 @@ def assign_parameters(ops, order, loop_target, params):
     return groups, (len(unattached), fallbacks, total_offset), unattached
 
 
-def build_program(points):
-    """(lexeme, xyz) points -> (SCuLPTER source lines, warnings)."""
+def build_instructions(points):
+    """(lexeme, xyz) points -> (instructions, warnings).
+
+    Each instruction is a dict with `token`, `operandos`, and where it sits:
+    `posicion` (mm) of the operation tile, `direccion` (unit vector of the
+    flow along the block) and `posiciones_operandos`. The `JMP` that closes a
+    physical loop has no block of its own, so it carries `posicion: None`
+    and `virtual: True`; `destino` is the index it jumps back to.
+    """
     ops, params = split_points(points)
     if not ops:
         return [], [f"{lexeme}: parameter tile with no operation block to attach to" for lexeme, _ in params]
@@ -193,12 +200,37 @@ def build_program(points):
         for i in sorted(set(range(len(ops))) - set(order))
     )
 
-    lines = [" ".join([ops[i][0], *(lexeme for _, lexeme, _ in groups[i])]) for i in order]
+    axes = _block_axes(ops, order, loop_target)
+    instructions = []
+    for pos, i in enumerate(order):
+        axis, _ = axes[pos]
+        instructions.append({
+            "token": ops[i][0],
+            "operandos": [lexeme for _, lexeme, _ in groups[i]],
+            "posicion": ops[i][1].tolist(),
+            "direccion": axis.tolist() if axis is not None else None,
+            "posiciones_operandos": [point.tolist() for _, _, point in groups[i]],
+            "virtual": False,
+        })
     if loop_target is not None:
-        # JMP at position len(lines) must land on position loop_target:
+        # JMP at position len(instructions) must land on position loop_target:
         # the interpreter does pc = pc + offset, so offset = target - position.
-        lines.append(f"JMP {loop_target - len(lines)}")
-    return lines, warnings
+        instructions.append({
+            "token": "JMP",
+            "operandos": [str(loop_target - len(instructions))],
+            "posicion": None,
+            "direccion": None,
+            "posiciones_operandos": [],
+            "virtual": True,
+            "destino": loop_target,
+        })
+    return instructions, warnings
+
+
+def build_program(points):
+    """(lexeme, xyz) points -> (SCuLPTER source lines, warnings)."""
+    instructions, warnings = build_instructions(points)
+    return [" ".join([i["token"], *i["operandos"]]) for i in instructions], warnings
 
 
 def build_chain(points):

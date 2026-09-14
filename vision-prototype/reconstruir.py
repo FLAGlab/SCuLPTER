@@ -26,6 +26,9 @@ TOLERANCIA_FILA_PX = 40
 VENTANA_ESTABILIDAD_S = 0.8
 MOVIMIENTO_ESTABLE_PX = 6
 AREA_MINIMA_FRACCION = 0.002
+AREA_MAXIMA_FRACCION = 0.15      # una ficha nunca ocupa más que esto del cuadro; la caja o la mesa sí
+PROPORCION_MAXIMA = 1.8          # las fichas son cuadradas: ancho/alto (o alto/ancho) mayor que esto no es ficha
+CARPETA_REGIONES = None          # --guardar-regiones: vuelca cada región con su puntaje para depurar
 PUERTO_WEBSOCKET = 8765
 INTERVALO_CLASIFICACION_S = 0.35
 ANCHO_TRABAJO_PX = 640
@@ -51,16 +54,34 @@ def detectar_regiones_por_contorno(cuadro):
     contornos, _ = cv2.findContours(binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     alto_cuadro, ancho_cuadro = gris.shape
-    area_minima = ancho_cuadro * alto_cuadro * AREA_MINIMA_FRACCION
+    area_cuadro = ancho_cuadro * alto_cuadro
+    area_minima = area_cuadro * AREA_MINIMA_FRACCION
+    area_maxima = area_cuadro * AREA_MAXIMA_FRACCION
 
     regiones = []
     for contorno in contornos:
         x, y, w, h = cv2.boundingRect(contorno)
-        if w * h < area_minima:
+        area = w * h
+        if area < area_minima or area > area_maxima:
+            continue
+        if max(w, h) / min(w, h) > PROPORCION_MAXIMA:
             continue
         recorte = cuadro[y : y + h, x : x + w]
         regiones.append((recorte, x + w / 2, y + h / 2))
     return regiones
+
+
+def _describir_candidatos(candidatos, cuantos: int = 2) -> str:
+    return ", ".join(f"{lexema} {puntaje:.2f}" for lexema, puntaje in candidatos[:cuantos])
+
+
+def _guardar_region(recorte, indice: int, lexema: str | None, candidatos) -> None:
+    if CARPETA_REGIONES is None:
+        return
+    os.makedirs(CARPETA_REGIONES, exist_ok=True)
+    mejor = f"{candidatos[0][0]}_{candidatos[0][1]:.2f}" if candidatos else "sin_candidatos"
+    estado = lexema or "rechazada"
+    cv2.imwrite(os.path.join(CARPETA_REGIONES, f"{indice:02d}_{estado}_{mejor}.png"), recorte)
 
 
 def detectar_en_cuadro(cuadro):
@@ -69,12 +90,13 @@ def detectar_en_cuadro(cuadro):
 
     detecciones = []
     avisos = []
-    for recorte, cx, cy in detectar_regiones_por_contorno(cuadro):
-        lexema = clasificador_simbolos.reconocer(recorte)
+    for indice, (recorte, cx, cy) in enumerate(detectar_regiones_por_contorno(cuadro)):
+        lexema, candidatos = clasificador_simbolos.reconocer_detallado(recorte)
+        _guardar_region(recorte, indice, lexema, candidatos)
         if lexema:
             detecciones.append((lexema, cx, cy))
         else:
-            avisos.append(f"región en ({cx:.0f},{cy:.0f}) sin coincidencia en referencias")
+            avisos.append(f"región en ({cx:.0f},{cy:.0f}) rechazada -- {_describir_candidatos(candidatos)}")
     return detecciones, avisos
 
 
@@ -311,7 +333,14 @@ async def principal_async() -> None:
     parser.add_argument("--camara", action="append", default=[], help="índice numérico o URL de video (repetible, una por cámara)")
     parser.add_argument("--una-vez", action="store_true", help="termina después de la primera lectura estable")
     parser.add_argument("--servir-3d", action="store_true", help="levanta un servidor WebSocket para el simulador 3D")
+    parser.add_argument(
+        "--guardar-regiones", metavar="CARPETA",
+        help="vuelca cada región detectada como PNG con su estado y mejor puntaje (para ajustar umbrales)",
+    )
     argumentos = parser.parse_args()
+
+    global CARPETA_REGIONES
+    CARPETA_REGIONES = argumentos.guardar_regiones
 
     faltantes = clasificador_simbolos.simbolos_sin_referencia()
     if faltantes:

@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import itertools
 import json
 import sys
@@ -7,9 +8,10 @@ from collections import defaultdict
 
 import cv2
 import numpy as np
+import websockets
 
 from calibrate_cameras import load_intrinsics
-from adjacency import build_program
+from adjacency import build_instructions
 import reconstruir
 
 INTERVAL_S = 0.5
@@ -19,9 +21,40 @@ MAX_BRUTE_FORCE = 7            # above this many duplicates of one lexeme, match
 
 
 def load_extrinsics(path: str):
+    """(rotation, translation, table) -- table is None if the calibration did not record it."""
     with open(path) as f:
         data = json.load(f)
-    return np.array(data["rotation"]), np.array(data["translation"])
+    table = data.get("table")
+    if table is not None:
+        table = (np.array(table["rotation"]), np.array(table["translation"]).reshape(3))
+    return np.array(data["rotation"]), np.array(data["translation"]), table
+
+
+def to_table_frame(points, table):
+    """Camera-A coordinates -> table coordinates (x, y on the surface, z up).
+
+    With a recorded table pose (camera = R·table + t) this is exact. Without
+    one, a plane is fitted to the points themselves: fine for a program laid
+    flat, only approximate for a tall sculpture.
+    """
+    if not points:
+        return points
+    xyz = np.array([p for _, p in points], dtype=float)
+    if table is not None:
+        rotation, translation = table
+        local = (xyz - translation) @ rotation          # R^T (p - t), row-wise
+    else:
+        centre = xyz.mean(axis=0)
+        if len(points) < 3:
+            local = xyz - centre
+        else:
+            _, _, vt = np.linalg.svd(xyz - centre)
+            x_axis, y_axis, normal = vt
+            if np.dot(normal, -centre) < 0:            # z must point towards the camera (origin)
+                normal = -normal
+                y_axis = -y_axis                        # keep the frame right-handed
+            local = (xyz - centre) @ np.stack([x_axis, y_axis, normal]).T
+    return [(lexeme, q) for (lexeme, _), q in zip(points, local)]
 
 
 def build_projections(mtx_a, mtx_b, rotation, translation):
@@ -161,7 +194,7 @@ class StereoRig:
     def __init__(self, intrinsics_a: str, intrinsics_b: str, extrinsics: str):
         self.mtx_a, self.dist_a = load_intrinsics(intrinsics_a)
         self.mtx_b, self.dist_b = load_intrinsics(intrinsics_b)
-        rotation, translation = load_extrinsics(extrinsics)
+        rotation, translation, self.table = load_extrinsics(extrinsics)
         self.proj_a, self.proj_b = build_projections(self.mtx_a, self.mtx_b, rotation, translation)
         self.fund = fundamental_matrix(self.mtx_a, self.mtx_b, rotation, translation)
 
@@ -174,22 +207,26 @@ class StereoRig:
             undistort_detections(dets_b, self.mtx_b, self.dist_b),
             self.fund, self.proj_a, self.proj_b,
         )
-        points = triangulate_pairs(pairs, self.proj_a, self.proj_b)
+        points = to_table_frame(triangulate_pairs(pairs, self.proj_a, self.proj_b), self.table)
+        if self.table is None and points:
+            match_warnings.append("no table pose in the extrinsics file -- frame fitted to the points themselves")
         return points, warnings + match_warnings
 
 
-def report(points, warnings, run_interpreter: bool = True) -> None:
+def report(points, warnings, run_interpreter: bool = True):
+    """Prints the reconstruction and returns (instructions, program lines)."""
     print("\n" + "=" * 60)
     for lexeme, point in points:
         x, y, z = point
-        print(f"  {lexeme:>6}  x={x:8.1f}  y={y:8.1f}  z={z:8.1f}  (mm, camera-a frame)")
+        print(f"  {lexeme:>6}  x={x:8.1f}  y={y:8.1f}  z={z:8.1f}  (mm, table frame)")
     for warning in warnings:
         print(f"  ! {warning}")
     if not points:
         print("  (no matched detections)")
-        return
+        return [], []
 
-    lines, program_warnings = build_program(points)
+    instructions, program_warnings = build_instructions(points)
+    lines = [" ".join([i["token"], *i["operandos"]]) for i in instructions]
     print("[programa reconstruido]")
     print("\n".join(f"  {line}" for line in lines) if lines else "  (vacío)")
     for warning in program_warnings:
@@ -198,6 +235,7 @@ def report(points, warnings, run_interpreter: bool = True) -> None:
         print("[intérprete scala]")
         for line in reconstruir.ejecutar_en_interprete("\n".join(lines)).splitlines():
             print(f"  {line}")
+    return instructions, lines
 
 
 def run_static(rig: StereoRig, image_a: str, image_b: str, run_interpreter: bool) -> None:
@@ -209,7 +247,7 @@ def run_static(rig: StereoRig, image_a: str, image_b: str, run_interpreter: bool
     report(points, warnings, run_interpreter)
 
 
-def run_live(rig: StereoRig, source_a, source_b, run_interpreter: bool) -> None:
+async def run_live(rig: StereoRig, source_a, source_b, run_interpreter: bool, servidor) -> None:
     cap_a = cv2.VideoCapture(source_a)
     cap_b = cv2.VideoCapture(source_b)
     if not cap_a.isOpened() or not cap_b.isOpened():
@@ -217,26 +255,34 @@ def run_live(rig: StereoRig, source_a, source_b, run_interpreter: bool) -> None:
 
     print("running -- ctrl+C to stop")
     last_report = 0.0
+    last_program = None
     try:
         while True:
             ok_a, frame_a = cap_a.read()
             ok_b, frame_b = cap_b.read()
             if not (ok_a and ok_b):
+                await asyncio.sleep(0)
                 continue
 
             now = time.time()
             if now - last_report < INTERVAL_S:
+                await asyncio.sleep(0)
                 continue
             last_report = now
 
             points, warnings = rig.reconstruct(frame_a, frame_b)
-            report(points, warnings, run_interpreter)
+            instructions, lines = report(points, warnings, run_interpreter)
+            # The simulator only needs to hear about a program once.
+            if servidor is not None and instructions and lines != last_program:
+                last_program = lines
+                await servidor.difundir({"tipo": "programa", "origen": "3d", "instrucciones": instructions})
+            await asyncio.sleep(0)
     finally:
         cap_a.release()
         cap_b.release()
 
 
-def main() -> None:
+async def main_async() -> None:
     parser = argparse.ArgumentParser(description="Reconstruct a SCuLPT program from two calibrated cameras")
     parser.add_argument("--intrinsics-a", required=True)
     parser.add_argument("--intrinsics-b", required=True)
@@ -246,6 +292,7 @@ def main() -> None:
     parser.add_argument("--camera-a", help="camera A index or video URL")
     parser.add_argument("--camera-b", help="camera B index or video URL")
     parser.add_argument("--sin-interprete", action="store_true", help="only print the program, do not run scala-cli")
+    parser.add_argument("--servir-3d", action="store_true", help="serve the reconstruction to simulador_3d over WebSocket")
     args = parser.parse_args()
 
     rig = StereoRig(args.intrinsics_a, args.intrinsics_b, args.extrinsics)
@@ -253,15 +300,30 @@ def main() -> None:
 
     if args.image_a and args.image_b:
         run_static(rig, args.image_a, args.image_b, run_interpreter)
-    elif args.camera_a and args.camera_b:
-        run_live(
-            rig,
-            reconstruir.resolver_fuente_camara(args.camera_a),
-            reconstruir.resolver_fuente_camara(args.camera_b),
-            run_interpreter,
-        )
-    else:
+        return
+    if not (args.camera_a and args.camera_b):
         sys.exit("provide either --image-a/--image-b or --camera-a/--camera-b")
+
+    servidor = None
+    if args.servir_3d:
+        servidor = reconstruir.ServidorSimulador(reconstruir.PUERTO_WEBSOCKET)
+        await websockets.serve(servidor.manejar_cliente, "localhost", reconstruir.PUERTO_WEBSOCKET)
+        print(f"servidor para el simulador 3D en ws://localhost:{reconstruir.PUERTO_WEBSOCKET}")
+
+    await run_live(
+        rig,
+        reconstruir.resolver_fuente_camara(args.camera_a),
+        reconstruir.resolver_fuente_camara(args.camera_b),
+        run_interpreter,
+        servidor,
+    )
+
+
+def main() -> None:
+    try:
+        asyncio.run(main_async())
+    except KeyboardInterrupt:
+        print("\ndetenido")
 
 
 if __name__ == "__main__":

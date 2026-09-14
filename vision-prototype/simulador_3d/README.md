@@ -54,6 +54,23 @@ whatever was in the scene — hand-built or from a previous reading. Both
 paths go through the same code (`reconstruirTodo` → `sculptEjecutar`), so
 there's no separate validation logic for each.
 
+That 2D reading only carries the instructions, so the scene lays them out in
+a fixed grid. The calibrated 3D pipeline also sends where each block is:
+
+```bash
+python3 vision-prototype/triangulate.py --intrinsics-a cam_a.json --intrinsics-b cam_b.json \
+    --extrinsics rig.json --camera-a 0 --camera-b 1 --servir-3d
+```
+
+Each instruction then arrives with `posicion` (mm, table frame: x/y on the
+surface, z up), `direccion` (flow along the block) and
+`posiciones_operandos`, and the scene places the blocks where they really
+are, rotated to follow the flow — a vertical sculpture shows up vertical.
+The `JMP` that stands in for a physical loop has no block; it is drawn as a
+yellow return line from the last block to the one the loop re-enters.
+Instructions added by hand while a physical reading is shown go to a grid on
+the side. Table frame → three.js: `(x, y, z) → (x, z, -y)`.
+
 ## What's simplified, on purpose
 
 - Each drag places a full instruction (operation + operands), not
