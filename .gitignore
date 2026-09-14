@@ -15,3 +15,5 @@ node_modules/
 dist/
 
 CLAUDE.md
+# scala-cli build cache (created when running vision-prototype/ejecutor_scala)
+.scala-build/
