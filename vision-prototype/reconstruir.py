@@ -304,6 +304,10 @@ async def principal_async() -> None:
     parser.add_argument("--servir-3d", action="store_true", help="levanta un servidor WebSocket para el simulador 3D")
     argumentos = parser.parse_args()
 
+    faltantes = clasificador_simbolos.simbolos_sin_referencia()
+    if faltantes:
+        print(f"[vision] símbolos en simbolos.json sin foto en referencias/: {', '.join(faltantes)}")
+
     if argumentos.imagen:
         ejecutar_con_imagenes(argumentos.imagen)
         return

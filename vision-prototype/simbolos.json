@@ -1,0 +1,35 @@
+{
+  "_doc": [
+    "Tabla de símbolos manuscritos -> lexema SCuLPTER.",
+    "archivo: nombre (sin extensión) de la foto en referencias/ que sirve de plantilla.",
+    "lexema: lo que se emite en el .scu. Las pilas deben ser identificadores ASCII",
+    "        ([A-Za-z_][A-Za-z0-9_]*) porque el Lexer de sculpter no acepta otra cosa;",
+    "        '?' es la única operación de un carácter no alfabético.",
+    "escrito: cómo se dibuja a mano sobre el bloque (solo informativo).",
+    "confirmado: false = la correspondencia se dedujo de la foto y hay que verificarla."
+  ],
+  "simbolos": [
+    {"archivo": "PUSH",     "lexema": "PUSH", "tipo": "operacion", "escrito": "↓",  "confirmado": true},
+    {"archivo": "ADD",      "lexema": "ADD",  "tipo": "operacion", "escrito": "+",  "confirmado": true},
+    {"archivo": "JMP",      "lexema": "JMP",  "tipo": "operacion", "escrito": "↻",  "confirmado": false},
+    {"archivo": "SUB",      "lexema": "SUB",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "MUL",      "lexema": "MUL",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "DIV",      "lexema": "DIV",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "MOD",      "lexema": "MOD",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "NEG",      "lexema": "NEG",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "CMP",      "lexema": "CMP",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "MOV",      "lexema": "MOV",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "DUP",      "lexema": "DUP",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "POP",      "lexema": "POP",  "tipo": "operacion", "escrito": null, "confirmado": false},
+    {"archivo": "PREGUNTA", "lexema": "?",    "tipo": "operacion", "escrito": "?",  "confirmado": true},
+
+    {"archivo": "heart",    "lexema": "heart",  "tipo": "pila", "escrito": "♡", "confirmado": true},
+    {"archivo": "circle",   "lexema": "circle", "tipo": "pila", "escrito": "○", "confirmado": true},
+
+    {"archivo": "0",   "lexema": "0",   "tipo": "literal", "escrito": "0",  "confirmado": true},
+    {"archivo": "1",   "lexema": "1",   "tipo": "literal", "escrito": "1",  "confirmado": true},
+    {"archivo": "3",   "lexema": "3",   "tipo": "literal", "escrito": "3",  "confirmado": true},
+    {"archivo": "10",  "lexema": "10",  "tipo": "literal", "escrito": "10", "confirmado": true},
+    {"archivo": "nil", "lexema": "nil", "tipo": "literal", "escrito": "#",  "confirmado": false}
+  ]
+}

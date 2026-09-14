@@ -11,11 +11,20 @@ Reference photos live in `referencias/`, seeded from the official renders
 bank of rotations (-40° to 40°) — plain matching breaks past ~20° of camera
 rotation.
 
-Missing: `a`, `b`, `c`, digits, and `POP` — no official render for these
-yet. Until then the camera reads the symbol but the interpreter correctly
-flags the instruction as incomplete (missing operand, not a bug). Drop a
-photo in `referencias/` named after the lexeme (`a.jpg`, `5.jpg`) to enable
-it, no code changes needed.
+`simbolos.json` maps each reference photo to the lexeme it emits, and records
+how the symbol is handwritten on the physical block (`↓` → `PUSH`, `+` →
+`ADD`, `♡` → `heart`, …). Stack names must be ASCII identifiers because the
+SCuLPTER lexer accepts nothing else, so `♡` becomes `heart` and `○` becomes
+`circle`. Entries with `"confirmado": false` were inferred from a photo and
+still need checking against the real blocks.
+
+The current reference photos were cut from the official render, but the
+physical blocks carry hand-drawn symbols, so those templates will most likely
+not match. To enable a symbol, photograph the real block and save it in
+`referencias/` under the `archivo` name from the table (`PUSH.jpg`,
+`heart.jpg`, `3.jpg`). A photo whose name is not in the table is used as-is
+with its filename as lexeme. `reconstruir.py` prints at startup which table
+entries still have no photo.
 
 ## Multi-camera
 
@@ -51,4 +60,4 @@ python3 vision-prototype/reconstruir.py --imagen vision-prototype/imagenes_prueb
 ## TODO
 
 - Camera calibration for real 3D fusion (currently best-view selection only)
-- Reference photos for `a`, `b`, `c`, digits, `POP`
+- Reference photos of the real hand-drawn blocks (see `simbolos.json`)
