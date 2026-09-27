@@ -190,7 +190,7 @@ def reportar(detecciones, avisos, camara, total, etiqueta="") -> None:
         print(f"[lectura incompleta] {len(huecos)} ficha(s) sin leer, no se ejecuta")
         for hueco in huecos:
             print(f"  - {hueco}")
-        print("  muestra esas fichas a la cámara, o añade su plantilla con capturar_referencias.py")
+        print("  muestra esas fichas a la cámara, o añade su plantilla con herramientas/capturar_referencias.py")
         return
     print("[intérprete scala]")
     for linea in ejecutar(codigo).splitlines():
@@ -253,7 +253,7 @@ async def desde_camaras(fuentes: list, una_vez: bool, servidor: ServidorSimulado
                     "(Terminal, iTerm, VS Code...):\n"
                     "  Ajustes del Sistema > Privacidad y seguridad > Cámara. "
                     "Si no aparece, ejecuta `tccutil reset Camera` y vuelve a intentarlo.\n"
-                    "  `python3 vision-prototype/listar_camaras.py` muestra los índices disponibles."
+                    "  `python3 vision-prototype/herramientas/listar_camaras.py` muestra los índices disponibles."
                 )
             sys.exit(mensaje)
 

@@ -1,0 +1,94 @@
+:root { --ficha-operacion: #439b9e; --ficha-numero: #dbba80; --ficha-etiqueta: #a4c6d2; }
+body.modo-vistas #escena, body.modo-vistas #panel, body.modo-vistas > .barra, body.modo-vistas #pilas-ejecucion, body.modo-vistas #paleta > .layers { display: none; }
+#vistas { position: absolute; inset: 0; pointer-events: none; }
+#vistas-lienzo { position: absolute; inset: 32px 332px 24px 292px; overflow: auto; pointer-events: auto; }
+#vistas-propiedades { right: 12px; width: 288px; pointer-events: auto; }
+#vistas-lista h2 { padding: 12px 16px 6px; margin: 0; font-size: 12.5px; font-weight: 600; }
+#vistas-lista .layer { width: calc(100% - 16px); border: 0; text-align: left; background: transparent; font-family: var(--sans); }
+#vistas-lista .layer.sel { background: var(--sel-bg); }
+#vistas-lista .layer:hover { background: var(--field); }
+#vistas-lista .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#vistas .frame-label { color: var(--text-2); font-weight: 500; margin: 0 0 8px; }
+#vistas .frame { background: var(--panel); border: 0; border-radius: 0; margin-bottom: 28px; overflow: hidden; }
+#vistas .frame.code { padding: 16px; font-family: var(--mono); font-size: 12.5px; line-height: 20px; white-space: pre-wrap; }
+#vistas .code { font-family: var(--mono); white-space: pre-wrap; background: var(--field); padding: 10px 12px; border-radius: 5px; line-height: 20px; }
+#vistas .prop .fld { min-width: 0; width: 100%; border: 0; font-family: var(--sans); }
+#vistas .prop .fld.mono { font-family: var(--mono); }
+#vistas .fld:focus { outline: none; background: var(--panel); box-shadow: inset 0 0 0 1px var(--sel); }
+#vistas .acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#vistas .accion { height: 28px; padding: 0 12px; border-radius: 5px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; }
+#vistas p { margin: 8px 0; }
+#vistas details { margin-top: 12px; }
+#vistas summary { cursor: pointer; margin-bottom: 12px; }
+#vistas .error { color: var(--err); }
+#vista-mensaje { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+#servicio-estado, #vistas .canvas-note { color: var(--text-2); line-height: 18px; }
+#adaptadores strong, #adaptadores span, #adaptadores small { display: block; margin-bottom: 4px; }
+#adaptadores > div { margin-bottom: 12px; }
+#adaptadores small { color: var(--text-2); font-size: 12.5px; }
+#vistas .cam-row { margin-bottom: 16px; }
+#cam-lecturas-panel { white-space: pre-wrap; overflow-wrap: anywhere; }
+.camara-frame { min-height: 230px; display: grid; place-items: center; }
+#vistas .camara-imagen { display: block; max-width: 100%; max-height: 350px; object-fit: contain; margin: auto; }
+.captura-frame { min-height: 400px; display: grid; place-items: center; }
+#cal-imagen { width: 100%; max-height: 520px; object-fit: contain; }
+#vistas .grid-frame { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 12px; padding: 16px; }
+#vistas .scard { border-radius: 8px; background: var(--field); display: flex; flex-direction: column; align-items: center; padding: 16px 8px 14px; border: 0; min-width: 0; }
+#vistas .selected { box-shadow: 0 0 0 2px var(--sel); }
+#vistas .spad { height: 120px; display: grid; place-items: center; width: 100%; }
+.spad img { width: 100%; height: 100%; max-height: 120px; object-fit: contain; }
+#vistas .glyph { font-size: 32px; font-family: var(--mono); }
+#vistas .sname { margin-top: 12px; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+#vistas .scap { margin-top: 4px; color: var(--text-2); }
+#vistas .ops-frame { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 10px; padding: 16px; }
+#vistas .ocard { height: 76px; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; border: 0; color: var(--panel); min-width: 0; text-align: left; }
+#vistas .ocard.bin, .bloque-bin { background: var(--bin); fill: var(--bin); }
+#vistas .ocard.una, .bloque-una { background: var(--una); fill: var(--una); color: var(--text); }
+#vistas .ocard.ari, .bloque-ari { background: var(--ari); fill: var(--ari); }
+#vistas .oname { font-family: var(--mono); font-size: 15px; font-weight: 500; }
+#vistas .ocap { font-size: 12px; }
+#vistas .big-glyph { height: 120px; background: var(--field); border-radius: 5px; display: grid; place-items: center; margin-bottom: 12px; font-family: var(--mono); font-size: 40px; }
+#vistas .thumbs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+#vistas .thumb { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--field); border-radius: 5px; }
+#vistas .foto-label { display: block; color: var(--text-2); margin: 12px 0; }
+.foto-label input { display: block; width: 100%; margin-top: 8px; }
+#simbolo-prueba { margin-top: 12px; overflow-wrap: anywhere; }
+#vistas .pieces { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; padding: 16px; }
+#vistas .pcard { border-radius: 8px; background: var(--field); border: 0; padding: 10px 12px 14px; text-align: left; min-width: 0; }
+#vistas .pimg { height: 150px; display: grid; place-items: center; }
+#vistas .pimg img { width: 100%; height: 100%; object-fit: contain; }
+#vistas .pname { font-weight: 600; margin-top: 4px; }
+#modelo-visor { height: 280px; }
+#modelo-visor canvas { width: 100%; height: 280px; }
+#modelo-descarga { text-decoration: none; }
+#ejemplo-plano { height: 350px; display: grid; place-items: center; }
+#ejemplo-plano svg { width: 100%; height: 100%; padding: 24px; }
+.diagrama-op { font: 7px var(--mono); fill: var(--text); }
+.diagrama-param { font: 9px var(--mono); fill: var(--text); }
+.ficha-operacion { fill: var(--ficha-operacion); }
+.ficha-numero { fill: var(--ficha-numero); }
+.ficha-etiqueta { fill: var(--ficha-etiqueta); }
+#controles-gravedad { position: absolute; right: 320px; top: 58px; display: flex; gap: 8px; z-index: 2; }
+body.modo-gravedad #aviso { color: var(--text-2); }
+@media (max-width:1050px) { #vistas-lienzo { left: 236px; right: 286px; } #vistas-propiedades { width:250px; } #vistas .grid-frame { grid-template-columns:repeat(3,minmax(0,1fr)); } #vistas .ops-frame { grid-template-columns:repeat(3,minmax(0,1fr)); } #vistas .pieces { grid-template-columns:repeat(2,minmax(0,1fr)); } #controles-gravedad { right:274px; } }
+#vistas-lista .layer.sel:hover { background: var(--sel-bg); }
+.archivo-oculto { position: absolute; width: 1px !important; height: 1px; opacity: 0; }
+.diagrama-union { stroke: var(--text-3); stroke-width: 9px; }
+.grafica-error { padding: 16px; }
+.grafica-error svg { width: 100%; font-family: var(--sans); fill: var(--text-2); }
+.limite-error { stroke: var(--line); stroke-dasharray: 4 4; }
+.barra-error { fill: var(--text-2); }
+.simrow { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+#vistas .pcard.sel { box-shadow: 0 0 0 2px var(--sel); background: var(--panel); }
+#vistas-lista .right-num { margin-left: auto; color: var(--text-2); font-variant-numeric: tabular-nums; }
+#vistas-lista .layer { min-width: 0; }
+#vistas-lista .layer > span:first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+#vistas .grid-frame { min-height: 254px; }
+#vistas [data-vista="camaras"] { padding-top: 40px; }
+#vistas .scap.errc { color: var(--err); }
+
+#fusion-piezas { max-height: 240px; overflow-y: auto; }
+.pieza-observada { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pieza-observada > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.pieza-observada .nota { margin: 4px 0 0; overflow-wrap: anywhere; }

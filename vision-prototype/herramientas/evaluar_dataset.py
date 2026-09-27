@@ -10,8 +10,8 @@ compara con `expected`:
   esperado, y qué fracción de sus instrucciones aparece.
 - Confusiones: qué se leyó en lugar de qué, y qué se perdió o sobró.
 
-  python3 vision-prototype/evaluar_dataset.py --manifest dataset/sesion1/manifest.jsonl
-  python3 vision-prototype/evaluar_dataset.py --manifest ... --split test --json metricas.json
+  python3 vision-prototype/herramientas/evaluar_dataset.py --manifest dataset/sesion1/manifest.jsonl
+  python3 vision-prototype/herramientas/evaluar_dataset.py --manifest ... --split test --json metricas.json
 """
 import argparse
 import json
@@ -20,6 +20,8 @@ import sys
 from collections import Counter, defaultdict
 
 import cv2
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import reconstruir
 

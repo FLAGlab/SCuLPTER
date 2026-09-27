@@ -11,9 +11,9 @@ foto), muestra la cámara en vivo y, para cada uno:
 El recorte se guarda en escala de grises como referencias/<archivo>.jpg, que
 es lo que carga clasif.py. Ejemplo:
 
-  python3 vision-prototype/capturar_referencias.py --camara 1
-  python3 vision-prototype/capturar_referencias.py --camara 1 --todos
-  python3 vision-prototype/capturar_referencias.py --camara 1 --solo PUSH heart 3
+  python3 vision-prototype/herramientas/capturar_referencias.py --camara 1
+  python3 vision-prototype/herramientas/capturar_referencias.py --camara 1 --todos
+  python3 vision-prototype/herramientas/capturar_referencias.py --camara 1 --solo PUSH heart 3
 """
 import argparse
 import json
@@ -22,7 +22,7 @@ import sys
 
 import cv2
 
-AQUI = os.path.dirname(os.path.abspath(__file__))
+AQUI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REFERENCIAS = os.path.join(AQUI, "referencias")
 TABLA = os.path.join(AQUI, "simbolos.json")
 MARGEN_PX = 4

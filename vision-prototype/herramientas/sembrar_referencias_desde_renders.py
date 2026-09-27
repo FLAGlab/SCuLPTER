@@ -3,9 +3,9 @@ import os
 import cv2
 import numpy as np
 
-RAIZ_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAIZ_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUTA_RENDER = os.path.join(RAIZ_REPO, "public", "imgs", "Renders", "Ops Front.png")
-REFERENCIAS = os.path.join(os.path.dirname(__file__), "referencias")
+REFERENCIAS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "referencias")
 
 ETIQUETAS_POR_POSICION = {
     (0, 0): "MOD",

@@ -1,10 +1,13 @@
 import sys
+from pathlib import Path
 
 import cv2
 
 
 def principal() -> None:
     maximo = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+    carpeta = Path(__file__).resolve().parents[1] / "datos_locales" / "capturas"
+    carpeta.mkdir(parents=True, exist_ok=True)
     for indice in range(maximo):
         captura = cv2.VideoCapture(indice)
         if not captura.isOpened():
@@ -16,8 +19,8 @@ def principal() -> None:
         alto = int(captura.get(cv2.CAP_PROP_FRAME_HEIGHT))
         captura.release()
         if ok:
-            ruta = f"vision-prototype/camara_{indice}.jpg"
-            cv2.imwrite(ruta, cuadro)
+            ruta = carpeta / f"camara_{indice}.jpg"
+            cv2.imwrite(str(ruta), cuadro)
             print(f"índice {indice}: {ancho}x{alto} -- captura guardada en {ruta}")
         else:
             print(f"índice {indice}: se abrió pero no entregó imagen")

@@ -28,7 +28,7 @@ export function lexemaParametro(p) {
 }
 
 export class Montaje {
-  constructor() { this.bloques = []; this.piezas = new Map(); this.secuencia = 0; }
+  constructor() { this.bloques = []; this.piezas = new Map(); this.secuencia = 0; this.conexiones = []; }
   id() { return `pieza_${++this.secuencia}`; }
   agregarBloque(token, capacidad = OPERACIONES[token]?.[0] || 1, posicion = [0, 0, 0]) {
     const rango = OPERACIONES[token];
@@ -86,6 +86,7 @@ export class Montaje {
     return true;
   }
   eliminarBloque(id) {
+    this.conexiones = this.conexiones.filter(c => c.origen !== id && c.destino !== id);
     for (const [piezaId, p] of this.piezas) if (p.union?.bloqueId === id) this.piezas.delete(piezaId);
     this.bloques = this.bloques.filter(b => b.id !== id);
   }

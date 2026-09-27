@@ -1,0 +1,128 @@
+import argparse
+import json
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+
+from plataforma.estado import Estado
+
+RAIZ = Path(__file__).resolve().parent
+
+
+def crear_handler(estado):
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(RAIZ / 'simulador_3d'), **kwargs)
+
+        def origen_valido(self):
+            origen = self.headers.get('Origin')
+            if not origen:
+                return True
+            url = urlparse(origen)
+            return url.scheme == 'http' and url.hostname in {'localhost', '127.0.0.1', '[::1]', '::1'}
+
+        def end_headers(self):
+            if self.origen_valido() and self.headers.get('Origin'):
+                self.send_header('Access-Control-Allow-Origin', self.headers['Origin'])
+                self.send_header('Vary', 'Origin')
+            self.send_header('Cache-Control', 'no-store')
+            super().end_headers()
+
+        def enviar(self, datos, status=200, tipo='application/json'):
+            contenido = json.dumps(datos, ensure_ascii=False, allow_nan=False).encode() if tipo == 'application/json' else datos
+            self.send_response(status)
+            self.send_header('Content-Type', tipo)
+            self.send_header('Content-Length', str(len(contenido)))
+            self.end_headers()
+            self.wfile.write(contenido)
+
+        def do_OPTIONS(self):
+            if not self.origen_valido():
+                self.enviar({'error': 'Origen no permitido.'}, 403)
+                return
+            self.send_response(204)
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.end_headers()
+
+        def do_GET(self):
+            if not self.origen_valido():
+                self.enviar({'error': 'Origen no permitido.'}, 403)
+                return
+            ruta = unquote(urlparse(self.path).path)
+            try:
+                if ruta == '/api/estado':
+                    self.enviar(estado.resumen())
+                elif ruta == '/api/simbolos':
+                    with estado.vocabulario.lock:
+                        self.enviar(estado.vocabulario.listar())
+                elif ruta.startswith('/api/foto/'):
+                    foto = estado.vocabulario.ruta_foto(ruta.rsplit('/', 1)[-1])
+                    self.enviar(foto.read_bytes(), tipo='image/png' if foto.suffix == '.png' else 'image/jpeg')
+                elif ruta.startswith('/api/imagen/'):
+                    partes = ruta.split('/')
+                    with estado.lock:
+                        cam = estado.camaras[partes[3]]
+                    with cam.lock:
+                        jpg = cam.jpeg_depth if len(partes) > 4 and partes[4] == 'depth' else cam.jpeg
+                    if not jpg:
+                        raise ValueError('Todavía no hay imagen.')
+                    self.enviar(jpg, tipo='image/jpeg')
+                elif ruta.startswith('/api/'):
+                    self.enviar({'error': 'Ruta desconocida.'}, 404)
+                else:
+                    super().do_GET()
+            except (ValueError, KeyError, FileNotFoundError):
+                self.enviar({'error': 'Recurso no disponible.'}, 404)
+
+        def do_POST(self):
+            if not self.origen_valido() or self.headers.get_content_type() != 'application/json':
+                self.enviar({'error': 'Solicitud no permitida.'}, 403)
+                return
+            try:
+                largo = int(self.headers.get('Content-Length', 0))
+                if not 0 < largo <= 8_100_000:
+                    raise ValueError('Solicitud demasiado grande o vacía.')
+                datos = json.loads(self.rfile.read(largo))
+                if not isinstance(datos, dict):
+                    raise ValueError('Se esperaba un objeto.')
+                ruta = urlparse(self.path).path
+                if ruta == '/api/simbolos/guardar':
+                    resultado = {'lexema': estado.vocabulario.guardar(datos)}
+                elif ruta == '/api/simbolos/probar':
+                    resultado = {'candidatos': estado.vocabulario.puntuar(estado.vocabulario.imagen(datos['imagen']))}
+                elif ruta.startswith('/api/camaras/'):
+                    resultado = estado.accion(ruta.rsplit('/', 1)[-1], datos)
+                else:
+                    raise ValueError('Acción desconocida.')
+                self.enviar(resultado)
+            except (ValueError, KeyError, TypeError) as exc:
+                self.enviar({'error': str(exc)}, 400)
+            except Exception:
+                self.enviar({'error': 'No se pudo completar la operación. Revisa la captura y los controladores.'}, 500)
+
+        def log_message(self, formato, *args):
+            if args and str(args[1]) not in {'200', '204'}:
+                super().log_message(formato, *args)
+    return Handler
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--puerto', type=int, default=8766)
+    parser.add_argument('--datos', type=Path, default=RAIZ / 'datos_locales')
+    args = parser.parse_args()
+    estado = Estado(RAIZ, args.datos)
+    servidor = ThreadingHTTPServer(('127.0.0.1', args.puerto), crear_handler(estado))
+    print(f'SCuLPTER: http://127.0.0.1:{args.puerto}', flush=True)
+    try:
+        servidor.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        servidor.server_close()
+        estado.cerrar()
+
+
+if __name__ == '__main__':
+    main()

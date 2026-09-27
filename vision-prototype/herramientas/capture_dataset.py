@@ -10,7 +10,7 @@ Para una imagen con una sola ficha basta el lexema: `"PUSH"`, `"heart"`.
 `evaluar_dataset.py` lee este manifiesto y calcula precisión/recall por
 símbolo y aciertos de programa completo.
 
-  python3 vision-prototype/capture_dataset.py --camara 1 --out dataset/sesion1 \\
+  python3 vision-prototype/herramientas/capture_dataset.py --camara 1 --out dataset/sesion1 \\
       --expected "PUSH heart 3; PUSH heart 10; ADD heart" --split test --writer carla
 
   ESPACIO guarda una imagen con la etiqueta dada | q termina

@@ -48,7 +48,7 @@ export function crearEditor(alGuardar) {
       destino = objetivo; tipo.value = contenido.tipo; texto.value = contenido.texto;
       trazos = structuredClone(contenido.trazos || []); trazo = null;
       document.getElementById("error-parametro").textContent = "";
-      actualizarTipo(); dibujar(); dialogo.showModal(); texto.focus();
+      actualizarTipo(); dibujar(); if (!dialogo.open) dialogo.show(); texto.focus();
     },
   };
 }

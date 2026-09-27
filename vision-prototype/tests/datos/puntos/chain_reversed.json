@@ -1,0 +1,10 @@
+[
+  {"lexema": "ADD",   "x": 0,   "y": 0, "z": 0},
+  {"lexema": "heart", "x": -20, "y": 0, "z": 0},
+  {"lexema": "PUSH",  "x": 60,  "y": 0, "z": 0},
+  {"lexema": "heart", "x": 40,  "y": 0, "z": 0},
+  {"lexema": "10",    "x": 25,  "y": 0, "z": 0},
+  {"lexema": "PUSH",  "x": 120, "y": 0, "z": 0},
+  {"lexema": "heart", "x": 100, "y": 0, "z": 0},
+  {"lexema": "3",     "x": 85,  "y": 0, "z": 0}
+]

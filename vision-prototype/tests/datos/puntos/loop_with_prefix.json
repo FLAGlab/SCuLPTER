@@ -1,0 +1,17 @@
+[
+  {"lexema": "PUSH",   "x": 0,   "y": 0,  "z": 0},
+  {"lexema": "heart",  "x": 20,  "y": 0,  "z": 0},
+  {"lexema": "1",      "x": 35,  "y": 0,  "z": 0},
+  {"lexema": "PUSH",   "x": 60,  "y": 0,  "z": 0},
+  {"lexema": "circle", "x": 80,  "y": 0,  "z": 0},
+  {"lexema": "0",      "x": 95,  "y": 0,  "z": 0},
+  {"lexema": "DUP",    "x": 120, "y": 0,  "z": 0},
+  {"lexema": "heart",  "x": 140, "y": 0,  "z": 0},
+  {"lexema": "ADD",    "x": 180, "y": 0,  "z": 0},
+  {"lexema": "heart",  "x": 180, "y": 20, "z": 0},
+  {"lexema": "MOV",    "x": 180, "y": 60, "z": 0},
+  {"lexema": "circle", "x": 160, "y": 60, "z": 0},
+  {"lexema": "heart",  "x": 145, "y": 60, "z": 0},
+  {"lexema": "POP",    "x": 120, "y": 60, "z": 0},
+  {"lexema": "heart",  "x": 120, "y": 40, "z": 0}
+]

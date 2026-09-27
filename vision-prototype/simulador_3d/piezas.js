@@ -65,9 +65,10 @@ export function posicionEncaje(slot) {
 
 export function crearFichaOperacion(geometria) {
   const ficha = new THREE.Mesh(geometria, [
-    new THREE.MeshStandardMaterial({ color: 0x439b9e, roughness: 0.65 }),
-    new THREE.MeshStandardMaterial({ color: 0x082936, roughness: 0.85 }),
+    new THREE.MeshLambertMaterial({ color: 0x439b9e }),
+    new THREE.MeshLambertMaterial({ color: 0x082936 }),
   ]);
+  ficha.castShadow = true;
   ficha.rotation.x = -Math.PI / 2;
   return ficha;
 }
@@ -80,11 +81,11 @@ export function crearFichaOperando(contenido) {
   const contexto = lienzo.getContext("2d");
   contexto.fillStyle = fondo;
   contexto.fillRect(0, 0, 512, 512);
-  contexto.fillStyle = "#203139";
+  contexto.fillStyle = "#1e1e1e";
   contexto.textAlign = "center";
   contexto.textBaseline = "middle";
   if (trazos.length) {
-    contexto.strokeStyle = "#203139";
+    contexto.strokeStyle = "#1e1e1e";
     contexto.lineWidth = 14;
     contexto.lineCap = contexto.lineJoin = "round";
     for (const trazo of trazos) {
@@ -95,7 +96,7 @@ export function crearFichaOperando(contenido) {
   } else {
     let fuente = 290;
     do {
-      contexto.font = `bold ${fuente}px system-ui, sans-serif`;
+      contexto.font = `500 ${fuente}px "Roboto Mono", monospace`;
       if (contexto.measureText(texto).width <= 440) break;
       fuente -= 2;
     } while (fuente > 18);
@@ -103,14 +104,72 @@ export function crearFichaOperando(contenido) {
   }
   const textura = new THREE.CanvasTexture(lienzo);
   textura.colorSpace = THREE.SRGBColorSpace;
-  const cara = new THREE.MeshStandardMaterial({ map: textura, roughness: 0.85 });
-  const lateral = new THREE.MeshStandardMaterial({ color: fondo, roughness: 0.85 });
+  const cara = new THREE.MeshLambertMaterial({ map: textura });
+  const lateral = new THREE.MeshLambertMaterial({ color: fondo });
   const grupo = new THREE.Group();
   const cuerpo = new THREE.Mesh(new THREE.BoxGeometry(18, 12, 18), [lateral, lateral, cara, lateral, lateral, lateral]);
   cuerpo.position.y = 6;
+  cuerpo.castShadow = true;
   grupo.add(cuerpo);
-  const iman = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, 2, 24), new THREE.MeshStandardMaterial({color: 0x657477, metalness: 0.8, roughness: 0.25}));
+  const iman = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, 2, 24), new THREE.MeshLambertMaterial({ color: 0xb3b3b3 }));
   iman.position.y = -0.5;
   grupo.add(iman);
   return grupo;
+}
+
+// conector.stl is a printing sheet with two parts: a threaded plug
+// (21 x 25.5 x 21) and the ball-ended shaft (15 x 42.5 x 11) that actually
+// joins two blocks. Keep the shaft, lay it along +X with the ball at +X, and
+// centre it on the origin. Flow runs flat end to ball, as the language defines.
+export const LARGO_CONECTOR = 42.5;
+export function prepararConector(lamina) {
+  const posiciones = lamina.getAttribute("position");
+  const vertices = [];
+  for (let i = 0; i < posiciones.count; i += 3) {
+    const cara = [0, 1, 2].map(j => new THREE.Vector3().fromBufferAttribute(posiciones, i + j));
+    if (!cara.every(v => v.x >= -8 && v.y >= -0.5)) continue;
+    for (const v of cara) vertices.push(v.x, v.y, v.z);
+  }
+  if (!vertices.length) throw new Error("No se encontró el conector en conector.stl");
+  const geometria = new THREE.BufferGeometry();
+  geometria.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometria.applyMatrix4(new THREE.Matrix4().set(
+    0, 1, 0, -LARGO_CONECTOR / 2,
+    0, 0, 1, -6.1,
+    1, 0, 0, 0,
+    0, 0, 0, 1,
+  ));
+  geometria.computeVertexNormals();
+  geometria.computeBoundingBox();
+  geometria.userData.compartida = true;
+  return geometria;
+}
+
+// Nut v7 and Wedge v3 are fixtures: they hold the assembly together and never
+// change the program. Per BlockAnatomy, the nut screws onto the block's Screw
+// and the wedge drops into the Wedge Slot on the block's side.
+export function prepararTuerca(geometria) {
+  geometria.applyMatrix4(new THREE.Matrix4().set(
+    0, 0, 1, -23.75,
+    1, 0, 0, 36,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+  ));
+  geometria.computeVertexNormals();
+  geometria.computeBoundingBox();
+  geometria.userData.compartida = true;
+  return geometria;
+}
+
+export function prepararCuna(geometria) {
+  geometria.applyMatrix4(new THREE.Matrix4().set(
+    0, 0, 1, 1.25,
+    0, 1, 0, -10,
+    -1, 0, 0, 6.5,
+    0, 0, 0, 1,
+  ));
+  geometria.computeVertexNormals();
+  geometria.computeBoundingBox();
+  geometria.userData.compartida = true;
+  return geometria;
 }

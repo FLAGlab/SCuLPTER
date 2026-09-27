@@ -3,7 +3,7 @@ import os
 from PIL import Image
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-CARPETA_REFERENCIAS = os.path.join(os.path.dirname(AQUI), "referencias")
+CARPETA_REFERENCIAS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(AQUI))), "referencias")
 
 
 def cargar(etiqueta: str) -> Image.Image:

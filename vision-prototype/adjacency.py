@@ -56,11 +56,11 @@ def separar(puntos):
     return ops, params, sueltas
 
 
-def grafo(ops):
+def grafo(ops, paso_mm=PASO_MM):
     graph = {i: [] for i in range(len(ops))}
     for i, j in itertools.combinations(range(len(ops)), 2):
         dist = np.linalg.norm(ops[i][1] - ops[j][1])
-        if abs(dist - PASO_MM) <= TOLERANCIA_MM:
+        if abs(dist - paso_mm) <= (TOLERANCIA_MM if paso_mm == PASO_MM else paso_mm * .2):
             graph[i].append(j)
             graph[j].append(i)
     return graph
@@ -144,7 +144,7 @@ def repartir(ops, order, destino, params):
     return grupos, (len(sueltos), fallbacks, total_offset), sueltos
 
 
-def instrucciones(puntos):
+def instrucciones(puntos, paso_mm=PASO_MM):
     ops, params, sueltas = separar(puntos)
     for entrada in sueltas:
         cerca = any(np.linalg.norm(entrada[1] - p) <= PARAM_CERCA_MM for _, p in ops)
@@ -152,7 +152,7 @@ def instrucciones(puntos):
     if not ops:
         return [], [f"{lexema}: parameter tile with no operation block to attach to" for lexema, _ in params]
 
-    graph = grafo(ops)
+    graph = grafo(ops, paso_mm)
     avisos = [
         f"{ops[i][0]}: {len(vecinos)} candidate vecinos -- ambiguous, chain order may be wrong"
         for i, vecinos in graph.items() if len(vecinos) > 3

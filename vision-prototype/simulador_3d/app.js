@@ -1,18 +1,96 @@
 import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { sculptEjecutar } from "./interprete.js";
-import { separarOperaciones, crearFichaOperacion, crearFichaOperando, prepararBloque, posicionEncaje } from "./piezas.js";
+import { Ejecucion, mostrarPila } from "./ejecucion.mjs";
+import { dibujarEjecucion } from "./vista-ejecucion.js";
+import { simbolo, contenidoPila } from "./simbolos.js";
+import { posicionPosterior, unir, conexionesValidas, pendientesConexiones, ordenarMontaje } from "./conexiones.mjs";
+import { separarOperaciones, crearFichaOperacion, crearFichaOperando, prepararBloque, prepararConector, prepararTuerca, prepararCuna, LARGO_CONECTOR, posicionEncaje } from "./piezas.js";
 import { Montaje, OPERACIONES, SIN_LEER, parametroDesdeTexto } from "./montaje.mjs";
 import { crearEditor } from "./editor-parametro.js";
 
+import { crearVistas } from "./vistas.js";
+import { CaidaVertical, conjuntosRigidos } from "./gravedad.mjs";
+import { montajeEjemplo } from "./ejemplos.mjs";
+
 const $ = id => document.getElementById(id);
+const ejecucion = new Ejecucion();
+let pagina = "mesa", origenPrograma = "manual", revision = 0, firmaValidada = null, motor = null, temporizador = null;
+let estadoEjecucion = { pendiente: false, mensaje: "Completa el montaje para ejecutar.", origen: "manual" };
+function detenerMotor() { motor?.terminate(); motor = null; clearTimeout(temporizador); }
+function invalidarEjecucion(mensaje) {
+  detenerMotor(); firmaValidada = null; revision++; ejecucion.limpiar();
+  estadoEjecucion = { pendiente: false, mensaje, origen: origenPrograma };
+}
+function validarPrograma(codigo) {
+  const firma = JSON.stringify([codigo, origenPrograma, montaje.bloques.map(b => b.id)]);
+  if (firma === firmaValidada) return;
+  detenerMotor(); firmaValidada = firma; const solicitud = ++revision;
+  ejecucion.limpiar(); estadoEjecucion = { pendiente: true, mensaje: "", origen: origenPrograma };
+  motor = new Worker(new URL("./interprete-worker.js", import.meta.url), { type: "module" });
+  const finalizar = resultado => {
+    if (solicitud !== revision) return;
+    detenerMotor(); ejecucion.cargar(resultado);
+    estadoEjecucion = { pendiente: false, mensaje: resultado.mensaje || "No se pudo interpretar el programa.", origen: origenPrograma };
+    reconstruirEscena(); reconstruirPanel();
+  };
+  motor.onmessage = ({ data }) => { if (data.revision === solicitud) finalizar(data.resultado); };
+  motor.onerror = () => finalizar({ valido: false, etapa: "motor", mensaje: "No se pudo cargar el intérprete. Revisa su compilación y recarga la página." });
+  temporizador = setTimeout(() => finalizar({ valido: false, etapa: "tiempo", mensaje: "La ejecución tardó demasiado y se detuvo. Reduce el programa y vuelve a intentarlo." }), 10000);
+  motor.postMessage({ revision: solicitud, codigo: codigo + "\n" });
+}
+function mostrarPaso() {
+  reconstruirEscena(); reconstruirPanel();
+}
+function cambiarPagina(destino) {
+  if (!listo || arrastre || nuevoArrastre) return;
+  if (gravedadActiva) alternarGravedad(false);
+  pagina = destino; $("editor-parametro").close();
+  document.body.classList.toggle("modo-ejecucion", pagina === "ejecucion");
+  document.body.classList.toggle("modo-vistas", !["mesa", "ejecucion"].includes(pagina));
+  vistas.mostrar(pagina);
+  for (const id of ["panel-ejecucion", "pilas-ejecucion", "barra-ejecucion"]) $(id).hidden = pagina !== "ejecucion";
+  for (const nombre of ["mesa", "ejecucion", "ejemplos", "camaras", "calibracion", "simbolos", "piezas"]) {
+    const boton = $("pagina-" + nombre); boton.classList.toggle("on", nombre === pagina);
+    boton.querySelector(".marca").textContent = nombre === pagina ? "✓" : "";
+    boton.setAttribute("aria-current", nombre === pagina ? "page" : "false");
+  }
+  if (!["mesa", "ejecucion"].includes(pagina)) return;
+  ajustarTamano(); mostrarPaso(); encuadrar();
+  aviso(pagina === "ejecucion" ? "Avanza para ver cómo cambian las pilas." : "Arrastra las fichas para editar el programa.");
+}
+$("pagina-mesa").onclick = () => cambiarPagina("mesa");
+$("pagina-ejecucion").onclick = () => cambiarPagina("ejecucion");
+for (const nombre of ["ejemplos", "camaras", "calibracion", "simbolos", "piezas"]) $("pagina-" + nombre).onclick = () => cambiarPagina(nombre);
+for (const [id, accion] of [["ej-reiniciar", "reiniciar"], ["ej-atras", "atras"], ["ej-siguiente", "siguiente"], ["ej-todo", "todo"]]) {
+  $(id).onclick = () => { ejecucion[accion](); mostrarPaso(); };
+}
+window.addEventListener("pagehide", detenerMotor);
+let audio = null;
+function sonarEncaje() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+    const t = audio.currentTime;
+    const oscilador = audio.createOscillator(), volumen = audio.createGain();
+    oscilador.type = "triangle";
+    oscilador.frequency.setValueAtTime(620, t);
+    oscilador.frequency.exponentialRampToValueAtTime(1180, t + 0.05);
+    volumen.gain.setValueAtTime(0.0001, t);
+    volumen.gain.exponentialRampToValueAtTime(0.16, t + 0.008);
+    volumen.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    oscilador.connect(volumen).connect(audio.destination);
+    oscilador.start(t); oscilador.stop(t + 0.15);
+  } catch { /* sin audio disponible */ }
+}
 const contenedor = $("escena"), resultadoEl = $("resultado");
 const escena = new THREE.Scene();
-escena.background = new THREE.Color(0x171c1c);
+escena.background = new THREE.Color(0xf5f5f5);
 const camara = new THREE.PerspectiveCamera(42, 1, 0.1, 5000);
 const renderizador = new THREE.WebGLRenderer({ antialias: true });
 renderizador.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderizador.shadowMap.enabled = true;
+renderizador.shadowMap.type = THREE.PCFSoftShadowMap;
 contenedor.appendChild(renderizador.domElement);
 const canvas = renderizador.domElement;
 const controles = new OrbitControls(camara, canvas);
@@ -21,32 +99,140 @@ controles.minDistance = 45;
 controles.maxDistance = 1800;
 controles.target.set(25, 12, 0);
 camara.position.set(95, 180, 170);
-escena.add(new THREE.HemisphereLight(0xffffff, 0x485454, 2));
-const luz = new THREE.DirectionalLight(0xffffff, 2.2);
-luz.position.set(-80, 200, 100); escena.add(luz);
-const mesa = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ color: 0x252c2b, roughness: 1 }));
-mesa.rotation.x = -Math.PI / 2; mesa.position.y = -0.1; escena.add(mesa);
-const rejilla = new THREE.GridHelper(1400, 70, 0x34443f, 0x2b3532); rejilla.position.y = 0.02; escena.add(rejilla);
+escena.add(new THREE.HemisphereLight(0xffffff, 0xd6d6d6, 2.1));
+const luz = new THREE.DirectionalLight(0xffffff, 1.5);
+luz.position.set(-140, 320, 190);
+luz.castShadow = true;
+luz.shadow.mapSize.set(2048, 2048);
+luz.shadow.radius = 5;
+luz.shadow.bias = -0.002;
+const c = luz.shadow.camera;
+c.left = -600; c.right = 600; c.top = 600; c.bottom = -600; c.near = 1; c.far = 900;
+escena.add(luz);
 
-let montaje = new Montaje(), listo = false, seleccionado = null, bloqueActivo = null, arrastre = null;
+function geometriaMesa(ancho, fondo, radio) {
+  const forma = new THREE.Shape();
+  const x = ancho / 2, z = fondo / 2, r = Math.min(radio, x, z);
+  forma.moveTo(-x + r, -z);
+  forma.lineTo(x - r, -z); forma.quadraticCurveTo(x, -z, x, -z + r);
+  forma.lineTo(x, z - r);  forma.quadraticCurveTo(x, z, x - r, z);
+  forma.lineTo(-x + r, z); forma.quadraticCurveTo(-x, z, -x, z - r);
+  forma.lineTo(-x, -z + r); forma.quadraticCurveTo(-x, -z, -x + r, -z);
+  const g = new THREE.ShapeGeometry(forma);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+const mesa = new THREE.Mesh(geometriaMesa(900, 460, 28), new THREE.MeshLambertMaterial({ color: 0xebebeb }));
+mesa.position.y = -0.1; mesa.receiveShadow = true; escena.add(mesa);
+function ajustarMesa() {
+  const caja = new THREE.Box3().setFromObject(objetos);
+  const ancho = caja.isEmpty() ? 900 : Math.max(900, caja.max.x - caja.min.x + 260);
+  const fondo = caja.isEmpty() ? 460 : Math.max(460, caja.max.z - caja.min.z + 260);
+  mesa.geometry.dispose();
+  mesa.geometry = geometriaMesa(ancho, fondo, 28);
+  mesa.position.x = caja.isEmpty() ? 0 : (caja.min.x + caja.max.x) / 2;
+  mesa.position.z = caja.isEmpty() ? 0 : (caja.min.z + caja.max.z) / 2;
+}
+
+let fijaciones = [];
+let montaje = new Montaje(), listo = false, seleccionado = null, bloqueActivo = null, arrastre = null, nuevoArrastre = null;
 let objetos = new THREE.Group(); escena.add(objetos);
-let geometrias = {}, operaciones = {}, mallasPiezas = new Map(), mallasBloques = new Map(), encajes = [];
+let geometrias = {}, operaciones = {}, conector = null, tuerca = null, cuna = null, mallasPiezas = new Map(), mallasBloques = new Map(), encajes = [];
+const LARGO = { 1: 30, 2: 50 };
+const ENTRADA = -35.5;
+
+const ALTURA_CONEXION = 15;
+const ALTURA_CUNA = 10.5;
+
+function extremo(b, local) {
+  return new THREE.Vector3(local, ALTURA_CONEXION, 0)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), b.angulo)
+    .add(new THREE.Vector3(...b.posicion));
+}
 const raycaster = new THREE.Raycaster();
-const aviso = mensaje => { $("aviso").textContent = mensaje; };
+let ultimoAviso = "";
+const aviso = mensaje => {
+  if (mensaje === ultimoAviso) return;
+  ultimoAviso = mensaje;
+  $("aviso").textContent = mensaje;
+};
 const alturaLibre = p => p.tipo === "operacion" ? 7.5 : 1.5;
-function manual() { $("camara-activa").checked = false; }
+let incertidumbreCamara = '';
+function manual() { incertidumbreCamara = ''; if (gravedadActiva) alternarGravedad(false); $("camara-activa").checked = false; vistas.detenerLectura(); }
+function bloqueSiguiente() { return montaje.bloques[ejecucion.actual?.siguiente]?.id ?? null; }
+function atenuar(objeto, bloqueId) {
+  if (pagina !== "ejecucion" || bloqueId === bloqueSiguiente()) return;
+  objeto.traverse(o => {
+    if (!o.material) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (m.map) { m.transparent = true; m.opacity = .45; m.depthWrite = false; }
+      else m.color?.lerp(new THREE.Color(0xf5f5f5), .55);
+    }
+  });
+}
+const marco = $("marco-seleccion"), etiquetaMarco = $("etiqueta-seleccion");
+const CAJA = new THREE.Box3(), ESQUINA = new THREE.Vector3();
+function dibujarSeleccion() {
+  const idVisible = pagina === "ejecucion" ? bloqueSiguiente() : bloqueActivo;
+  const malla = mallasBloques.get(idVisible);
+  if (!malla || arrastre?.movido || nuevoArrastre?.movido) { marco.hidden = true; return; }
+  const bloque = montaje.bloque(idVisible);
+  CAJA.setFromObject(malla);
+  const pieza = mallasPiezas.get(bloque?.operacion);
+  if (pieza) CAJA.expandByObject(pieza);
+  for (const id of bloque?.parametros ?? []) {
+    const p = id && mallasPiezas.get(id);
+    if (p) CAJA.expandByObject(p);
+  }
+  const r = canvas.getBoundingClientRect();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    ESQUINA.set(i & 1 ? CAJA.max.x : CAJA.min.x, i & 2 ? CAJA.max.y : CAJA.min.y, i & 4 ? CAJA.max.z : CAJA.min.z);
+    ESQUINA.project(camara);
+    x0 = Math.min(x0, ESQUINA.x); x1 = Math.max(x1, ESQUINA.x);
+    y0 = Math.min(y0, ESQUINA.y); y1 = Math.max(y1, ESQUINA.y);
+  }
+  const izquierda = (x0 + 1) / 2 * r.width, derecha = (x1 + 1) / 2 * r.width;
+  const arriba = (1 - y1) / 2 * r.height, abajo = (1 - y0) / 2 * r.height;
+  marco.hidden = false;
+  marco.style.left = `${izquierda}px`;
+  marco.style.top = `${arriba}px`;
+  marco.style.width = `${derecha - izquierda}px`;
+  marco.style.height = `${abajo - arriba}px`;
+  const instruccion = montaje.programa()[montaje.bloques.indexOf(bloque)];
+  const etiquetas = montaje.etiquetas();
+  etiquetaMarco.textContent = instruccion
+    ? (pagina === "ejecucion" ? "Siguiente: " : "") + [instruccion.token, ...instruccion.operandos.map(o => o === SIN_LEER ? "\u2026" : etiquetas.get(o) || o)].join(" ")
+    : "";
+}
 function ajustarTamano() {
+  if (!["mesa", "ejecucion"].includes(pagina)) return;
   const ancho = contenedor.clientWidth, alto = contenedor.clientHeight;
   camara.aspect = ancho / alto; camara.updateProjectionMatrix(); renderizador.setSize(ancho, alto);
 }
 window.addEventListener("resize", ajustarTamano);
+function areaVisible() {
+  const r = canvas.getBoundingClientRect();
+  const izquierda = $("paleta").getBoundingClientRect().right;
+  const derecha = $("panel").getBoundingClientRect().left;
+  return { ancho: Math.max(240, derecha - izquierda), centro: (izquierda + derecha) / 2 - (r.left + r.width / 2) };
+}
 function encuadrar() {
   const caja = new THREE.Box3().setFromObject(objetos);
   if (caja.isEmpty()) return;
   const centro = caja.getCenter(new THREE.Vector3()), tamano = caja.getSize(new THREE.Vector3());
-  const distancia = Math.max(tamano.x / camara.aspect, tamano.z, tamano.y, 95) / (2 * Math.tan(THREE.MathUtils.degToRad(camara.fov / 2))) * 1.6;
+  const visible = areaVisible();
+  const proporcion = visible.ancho / canvas.clientHeight;
+  const media = 2 * Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
+  const distancia = Math.max(tamano.x / proporcion, tamano.z, tamano.y, 95) / media * 1.6;
   controles.target.copy(centro);
   camara.position.copy(centro).add(new THREE.Vector3(0.28, 0.88, 0.82).normalize().multiplyScalar(distancia));
+  // Los paneles flotan sobre el lienzo: desplaza la cámara para que el
+  // programa quede centrado en el hueco que dejan, no en el lienzo entero.
+  const porPixel = media * distancia / canvas.clientHeight;
+  const lateral = new THREE.Vector3().subVectors(camara.position, controles.target).cross(camara.up).normalize();
+  const desplazamiento = lateral.multiplyScalar(visible.centro * porPixel);
+  camara.position.add(desplazamiento); controles.target.add(desplazamiento);
   controles.update();
 }
 $("encuadrar").onclick = encuadrar;
@@ -67,19 +253,31 @@ function transformacionBloque(b) {
 }
 function puntoEncaje(b, slot) { return posicionEncaje(slot).applyMatrix4(transformacionBloque(b)); }
 function crearMarcador(b, slot) {
-  const aro = new THREE.Mesh(new THREE.RingGeometry(slot === -1 ? 7 : 5, slot === -1 ? 9 : 7, 32), new THREE.MeshBasicMaterial({ color: 0x80cbb9, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
+  const aro = new THREE.Mesh(new THREE.RingGeometry(slot === -1 ? 7 : 5, slot === -1 ? 9 : 7, 32), new THREE.MeshBasicMaterial({ color: 0xb3b3b3, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
   aro.rotation.x = -Math.PI / 2; aro.position.copy(puntoEncaje(b, slot)); aro.position.y += 0.12;
-  aro.userData.encaje = { bloqueId: b.id, slot };
+  aro.userData.encaje = { bloqueId: b.id, slot }; aro.userData.bloqueId = b.id;
   objetos.add(aro); encajes.push({ bloqueId: b.id, slot, posicion: puntoEncaje(b, slot), aro });
 }
 function reconstruirEscena() {
   liberar(); mallasPiezas = new Map(); mallasBloques = new Map(); encajes = [];
   for (const b of montaje.bloques) {
     if (b.virtual) continue;
-    const base = new THREE.Mesh(geometrias[b.capacidad], new THREE.MeshStandardMaterial({ color: b.id === bloqueActivo ? 0x3d8880 : 0x2a6f6a, roughness: 0.65 }));
+    const instruccion = montaje.programa()[montaje.bloques.indexOf(b)];
+    const base = new THREE.Mesh(geometrias[b.capacidad], new THREE.MeshLambertMaterial({
+      color: COLOR_FAMILIA[FAMILIA[instruccion?.token]] ?? 0xb3b3b3, flatShading: true,
+    }));
+    base.castShadow = true; base.receiveShadow = true;
     base.position.fromArray(b.posicion); base.rotation.y = b.angulo; base.userData.bloqueId = b.id;
+    atenuar(base, b.id);
     objetos.add(base); mallasBloques.set(b.id, base);
-    for (let slot = -1; slot < b.capacidad; slot++) crearMarcador(b, slot);
+    if (tuerca) {
+      const nudo = new THREE.Mesh(tuerca, new THREE.MeshLambertMaterial({ color: 0xffc700, flatShading: true }));
+      nudo.position.copy(new THREE.Vector3(-30, ALTURA_CONEXION, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), b.angulo).add(new THREE.Vector3(...b.posicion)));
+      nudo.rotation.y = b.angulo; nudo.userData.bloqueId = b.id;
+      nudo.castShadow = true;
+      atenuar(nudo, b.id); objetos.add(nudo);
+    }
+    if (pagina === "mesa") for (let slot = -1; slot < b.capacidad; slot++) crearMarcador(b, slot);
   }
   for (const p of montaje.piezas.values()) {
     const raiz = new THREE.Group();
@@ -89,8 +287,28 @@ function reconstruirEscena() {
       const b = montaje.bloque(p.union.bloqueId);
       raiz.position.copy(p.observada ? new THREE.Vector3(...p.observada) : puntoEncaje(b, p.union.slot)); raiz.rotation.y = b.angulo;
     } else raiz.position.fromArray(p.posicion);
+    atenuar(raiz, p.union?.bloqueId);
     objetos.add(raiz); mallasPiezas.set(p.id, raiz);
   }
+  fijaciones.forEach((f, i) => {
+    if (!cuna) return;
+    const pieza = new THREE.Mesh(cuna, new THREE.MeshLambertMaterial({ color: 0xffc700, flatShading: true }));
+    pieza.position.fromArray(f.posicion);
+    pieza.rotation.y = f.angulo;
+    pieza.castShadow = true;
+    pieza.userData.fijacion = i;
+    objetos.add(pieza);
+  });
+
+  for (const conexion of conexionesValidas(montaje)) {
+    if (!conector) continue;
+    const a = montaje.bloque(conexion.origen), b = montaje.bloque(conexion.destino);
+    const salida = extremo(a, LARGO[a.capacidad]), entrada = extremo(b, ENTRADA);
+    const pieza = new THREE.Mesh(conector, new THREE.MeshLambertMaterial({ color: 0xf0f0f0, flatShading: true }));
+    pieza.castShadow = true; pieza.position.copy(salida).lerp(entrada, 0.5);
+    pieza.rotation.y = a.angulo; pieza.userData.bloqueId = a.id; atenuar(pieza, a.id); objetos.add(pieza);
+  }
+
   // Preserve the calibrated pipeline's virtual loop edges.
   montaje.bloques.forEach((b, i) => {
     if (!b.virtual || b.instruccion.destino == null) return;
@@ -102,76 +320,203 @@ function reconstruirEscena() {
     const curva = new THREE.CatmullRomCurve3([a, a.clone().lerp(c, 0.5).add(new THREE.Vector3(0, 35, 0)), c]);
     objetos.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curva.getPoints(30)), new THREE.LineBasicMaterial({ color: 0xffc83d })));
   });
+  ajustarMesa();
   actualizarEncajes();
+  if (gravedadActiva) prepararGravedad();
 }
 function actualizarEncajes(candidato = null) {
   for (const e of encajes) {
     const b = montaje.bloque(e.bloqueId);
     e.aro.visible = !montaje.ocupante(b, e.slot);
-    e.aro.material.color.setHex(candidato === e ? 0xffd36b : 0x80cbb9);
+    e.aro.material.color.setHex(candidato === e ? 0x0d99ff : 0xb3b3b3);
     e.aro.scale.setScalar(candidato === e ? 1.18 : 1);
   }
 }
+const FAMILIA = { PUSH: "bin", MOV: "bin", POP: "una", DUP: "una", NEG: "una", "?": "una", JMP: "una", CMP: "una", ADD: "ari", SUB: "ari", MUL: "ari", DIV: "ari", MOD: "ari" };
+const COLOR_FAMILIA = { bin: 0x7b61ff, una: 0xffc700, ari: 0xf0368d };
+const ROTULOS = {
+  PUSH: ["Pila", "Valor"], MOV: ["Destino", "Origen"],
+  POP: ["Pila"], DUP: ["Pila"], NEG: ["Pila"], "?": ["Pila"], JMP: ["Desplazamiento"],
+  CMP: ["Pila", "Valor"], ADD: ["Pila", "Valor"], SUB: ["Pila", "Valor"],
+  MUL: ["Pila", "Valor"], DIV: ["Pila", "Valor"], MOD: ["Pila", "Valor"],
+};
+const DESCRIPCIONES = {
+  PUSH: (a, b) => `Pone ${b} encima de ${a}.`,
+  MOV: (a, b) => `Saca el tope de ${b} y lo pone encima de ${a}.`,
+  POP: a => `Quita el tope de ${a}.`,
+  DUP: a => `Duplica el tope de ${a}.`,
+  NEG: a => `Cambia de signo el tope de ${a}.`,
+  "?": a => `Saca el tope de ${a}; si es negativo o vacío (#), salta la instrucción siguiente.`,
+  JMP: a => `Mueve la ejecución ${a} instrucciones.`,
+  CMP: (a, b) => b ? `Compara el tope de ${a} con ${b} y apila 1, 0 o -1.` : `Compara los dos topes de ${a} y apila 1, 0 o -1.`,
+  ADD: (a, b) => b ? `Suma ${b} al tope de ${a}.` : `Suma los dos topes de ${a}.`,
+  SUB: (a, b) => b ? `Resta ${b} al tope de ${a}.` : `Resta los dos topes de ${a}.`,
+  MUL: (a, b) => b ? `Multiplica el tope de ${a} por ${b}.` : `Multiplica los dos topes de ${a}.`,
+  DIV: (a, b) => b ? `Divide el tope de ${a} entre ${b}.` : `Divide los dos topes de ${a}.`,
+  MOD: (a, b) => b ? `Resto del tope de ${a} entre ${b}.` : `Resto de los dos topes de ${a}.`,
+};
+
 function boton(texto, accion, clase = "") {
   const b = document.createElement("button"); b.textContent = texto; b.className = clase; b.onclick = accion; return b;
+}
+function nodo(etiqueta, clase = "", texto = "") {
+  const e = document.createElement(etiqueta);
+  if (clase) e.className = clase;
+  if (texto) e.textContent = texto;
+  return e;
+}
+function filaPrograma(b, i, programa, etiquetas) {
+  const instruccion = programa[i];
+  const abierta = pagina === "mesa" && b.id === bloqueActivo;
+  const proxima = pagina === "ejecucion" && i === ejecucion.actual?.siguiente;
+  const fila = nodo("div", "layer" + (abierta ? " sel open" : "") + (proxima ? " next" : ""));
+  fila.append(nodo("span", "caret" + (proxima ? " pc" : ""), proxima ? "▶" : abierta ? "\u25be" : "\u203a"), nodo("span", "num", String(i + 1)));
+  if (!b.virtual) fila.append(nodo("span", `sw ${FAMILIA[instruccion.token] || "una"}`));
+  fila.append(nodo("span", "txt", instruccion.token));
+  for (const operando of instruccion.operandos) {
+    if (operando === SIN_LEER) fila.append(nodo("span", "miss-txt", "Sin leer"));
+    else fila.append(simbolo(operando === "nil" ? { texto: "nil", tipo: "nil" } : contenidoPila(operando, montaje)));
+  }
+  fila.onclick = () => { if (pagina !== "mesa") return; manual(); bloqueActivo = b.id; seleccionado = b.operacion; actualizar(); };
+  return fila;
+}
+function filasHijas(b, instruccion) {
+  if (b.virtual) return [];
+  const hijas = [];
+  const op = nodo("div", "layer child");
+  op.append(nodo("span", "tok" + (b.operacion ? "" : " miss")));
+  op.append(b.operacion ? nodo("span", "txt", instruccion.token) : nodo("span", "miss-txt", "Sin leer"));
+  op.onclick = () => { manual(); bloqueActivo = b.id; seleccionado = b.operacion; actualizar(); };
+  hijas.push(op);
+  b.parametros.forEach((id, j) => {
+    const pieza = id && montaje.piezas.get(id);
+    const fila = nodo("div", "layer child");
+    fila.append(nodo("span", "tok" + (pieza ? "" : " miss")));
+    fila.append(pieza ? simbolo(pieza.contenido, true) : nodo("span", "miss-txt", "Sin leer"));
+    fila.onclick = () => { manual(); bloqueActivo = b.id; if (pieza) editar(id); else abrirEditor({ bloqueId: b.id, slot: j }); };
+    hijas.push(fila);
+  });
+  hijas[hijas.length - 1].classList.add("last");
+  return hijas;
+}
+function propiedades(b, i, programa, etiquetas) {
+  const seccion = $("sec-seleccion");
+  seccion.hidden = !b;
+  const caja = $("seleccion");
+  caja.replaceChildren();
+  if (!b) return;
+  const instruccion = programa[i];
+  const cabecera = nodo("div", "sec-head", `Instrucción ${i + 1}`);
+  const herramientas = nodo("div", "tools");
+  for (const [signo, delta] of [["\u2191", -1], ["\u2193", 1]]) herramientas.append(boton(signo, ev => {
+    ev.stopPropagation();
+    const j = i + delta; if (j < 0 || j >= montaje.bloques.length) return;
+    manual(); origenPrograma = "manual"; [montaje.bloques[i], montaje.bloques[j]] = [montaje.bloques[j], montaje.bloques[i]]; ordenarMontaje(montaje); limpiarObservadas(); actualizar(); encuadrar();
+  }));
+  herramientas.append(boton("\u232b", ev => { ev.stopPropagation(); manual(); montaje.eliminarBloque(b.id); seleccionado = null; bloqueActivo = null; actualizar(); }));
+  if (montaje.bloques.some(b => b.virtual)) for (const boton of herramientas.querySelectorAll("button")) boton.disabled = true;
+  cabecera.append(herramientas);
+  caja.append(cabecera);
+
+  const operacion = nodo("div", "prop");
+  operacion.append(nodo("span", "lbl", "Operación"));
+  const campo = nodo("div", "fld");
+  if (!b.virtual) campo.append(nodo("span", `sw ${FAMILIA[instruccion.token] || "una"}`));
+  campo.append(nodo("span", "", instruccion.token));
+  operacion.append(campo);
+  caja.append(operacion);
+  if (i > 0 && !b.virtual && !montaje.bloques[i - 1].virtual && origenPrograma === "manual") {
+    const anterior = montaje.bloques[i - 1];
+    if (!conexionesValidas(montaje).some(c => c.origen === anterior.id && c.destino === b.id)) caja.append(boton("Unir al anterior", () => {
+      manual(); unir(montaje, anterior, b); limpiarObservadas(); actualizar(); encuadrar(); sonarEncaje();
+    }, "accion primaria"));
+  }
+
+  if (!b.virtual) {
+    const rotulos = ROTULOS[instruccion.token] || [];
+    b.parametros.forEach((id, j) => {
+      const pieza = id && montaje.piezas.get(id);
+      const fila = nodo("div", "prop");
+      fila.append(nodo("span", "lbl", rotulos[j] || `Parámetro ${j + 1}`));
+      const valor = nodo("div", "fld accion-fld");
+      valor.append(pieza ? simbolo(pieza.contenido, true) : nodo("span", "miss-txt", "Sin leer"));
+      valor.onclick = () => { manual(); bloqueActivo = b.id; if (pieza) editar(id); else abrirEditor({ bloqueId: b.id, slot: j }); };
+      fila.append(valor);
+      caja.append(fila);
+    });
+  }
+
+  const describir = DESCRIPCIONES[instruccion.token];
+  if (describir) {
+    const nombres = instruccion.operandos.map(o => o === SIN_LEER ? "\u2026" : etiquetas.get(o) || o);
+    if (nombres.every(n => n !== "\u2026") && nombres.length) caja.append(nodo("div", "nota", describir(...nombres)));
+  }
+
+  const pieza = montaje.piezas.get(seleccionado);
+  if (!pieza) return;
+  const acciones = nodo("div", "acciones-ficha");
+  if (!pieza.union) acciones.append(boton("Encajar", () => {
+    const destino = encajes.find(e => e.bloqueId === bloqueActivo && montaje.puedeAcoplar(pieza.id, e.bloqueId, e.slot)) || encajes.find(e => montaje.puedeAcoplar(pieza.id, e.bloqueId, e.slot));
+    if (!destino) { aviso("No hay un encaje libre compatible con esta ficha."); return; }
+    manual(); montaje.acoplar(pieza.id, destino.bloqueId, destino.slot); delete pieza.observada; sonarEncaje(); actualizar(); aviso("Ficha encajada.");
+  }, "accion primaria"));
+  if (pieza.union) acciones.append(boton("Retirar", () => {
+    manual();
+    const pos = mallasPiezas.get(pieza.id).position.clone(); pos.z += 40; pos.y = alturaLibre(pieza);
+    montaje.desacoplar(pieza.id, pos.toArray()); delete pieza.observada; actualizar();
+    aviso("Ficha retirada. Puedes arrastrarla a otro encaje.");
+  }, "accion"));
+  acciones.append(boton("Eliminar ficha", () => {
+    manual(); montaje.desacoplar(pieza.id); montaje.piezas.delete(pieza.id); seleccionado = null; actualizar();
+  }, "accion"));
+  caja.append(acciones);
+}
+function estado(marca, clase, titulo, detalle) {
+  const caja = nodo("div", "status");
+  caja.append(nodo("span", `marca ${clase}`, marca));
+  const texto = nodo("div");
+  texto.append(nodo("div", "t1", titulo));
+  if (detalle) texto.append(nodo("div", "t2", detalle));
+  caja.append(texto);
+  return caja;
 }
 function reconstruirPanel() {
   const programa = montaje.programa(), etiquetas = montaje.etiquetas();
   const lista = $("lista-programa"); lista.replaceChildren();
   $("vacio").hidden = montaje.bloques.length > 0;
   montaje.bloques.forEach((b, i) => {
-    const fila = document.createElement("div"); fila.className = "linea-programa" + (b.id === bloqueActivo ? " seleccionada" : "");
-    const texto = document.createElement("span");
-    texto.textContent = [programa[i].token, ...programa[i].operandos.map(p => etiquetas.get(p) || p)].join(" ").replaceAll(SIN_LEER, "…");
-    fila.append(texto);
-    for (const [signo, delta] of [["↑", -1], ["↓", 1]]) fila.append(boton(signo, () => {
-      const j = i + delta; if (j < 0 || j >= montaje.bloques.length) return;
-      manual(); [montaje.bloques[i], montaje.bloques[j]] = [montaje.bloques[j], montaje.bloques[i]]; actualizar();
-    }));
-    fila.append(boton("✕", () => { manual(); montaje.eliminarBloque(b.id); seleccionado = null; actualizar(); }));
-    if (!b.virtual) {
-      const slots = document.createElement("div"); slots.className = "encajes";
-      slots.append(boton(b.operacion ? "OP ✓" : "OP vacío", () => { bloqueActivo = b.id; seleccionado = b.operacion; actualizar(); }, "encaje"));
-      b.parametros.forEach((id, j) => slots.append(boton(`P${j + 1} ${id ? "✓" : "vacío"}`, () => {
-        manual(); bloqueActivo = b.id;
-        if (id) editar(id); else editor.abrir({ bloqueId: b.id, slot: j });
-      }, "encaje")));
-      fila.append(slots);
-    }
-    lista.append(fila);
+    lista.append(filaPrograma(b, i, programa, etiquetas));
+    if (pagina === "mesa" && b.id === bloqueActivo) for (const hija of filasHijas(b, programa[i])) lista.append(hija);
   });
+
   const codigo = programa.map(i => [i.token, ...i.operandos].join(" ")).join("\n");
-  $("codigo-generado").textContent = codigo.replaceAll(SIN_LEER, "…") || "(vacío)";
-  $("alias").textContent = [...etiquetas].filter(([id, nombre]) => id !== nombre).map(([id, nombre]) => `${nombre} → ${id}`).join("\n");
-  resultadoEl.className = "";
-  const pendientes = montaje.pendientes();
-  if (arrastre?.movido || pendientes.length) {
-    resultadoEl.className = "pendiente";
-    resultadoEl.textContent = ["EN CONSTRUCCIÓN · no se ejecuta", ...(arrastre?.movido ? ["Hay una ficha en movimiento."] : []), ...pendientes].join("\n");
-  } else if (!codigo) resultadoEl.textContent = "(sin instrucciones todavía)";
-  else {
-    const resultado = sculptEjecutar(codigo + "\n");
-    resultadoEl.className = resultado.valido ? "valido" : "invalido";
-    resultadoEl.textContent = resultado.valido ? ["VÁLIDO", ...resultado.pasos.map((pilas, i) => `paso ${i + 1}: ` + (Object.entries(pilas).map(([id, valores]) => `${etiquetas.get(id) || id}=[${valores.join(",")}]`).join(" ") || "(sin pilas)"))].join("\n") : `INVÁLIDO (${resultado.etapa})\n${resultado.mensaje || ""}`;
+  $("codigo-generado").textContent = codigo.replaceAll(SIN_LEER, "\u2026") || "(vacío)";
+  $("alias").textContent = [...etiquetas].filter(([id, nombre]) => id !== nombre).map(([id, nombre]) => `${nombre} \u2192 ${id}`).join("\n");
+
+  resultadoEl.replaceChildren();
+  const pendientes = [...montaje.pendientes(), ...(origenPrograma === "manual" ? pendientesConexiones(montaje) : [])];
+  if (origenPrograma === 'camara' && incertidumbreCamara) {
+    invalidarEjecucion(incertidumbreCamara);
+    resultadoEl.append(estado('!', 'errc', 'Lectura pendiente de confirmar', incertidumbreCamara));
+  } else if (arrastre?.movido || nuevoArrastre?.movido) resultadoEl.append(estado("!", "", "En construcción", "Hay una ficha en movimiento."));
+  else if (pendientes.length || !codigo) {
+    invalidarEjecucion(pendientes.length ? pendientes.join("\n") : "Añade instrucciones a la mesa.");
+    resultadoEl.append(estado(pendientes.length ? "!" : "○", pendientes.length ? "errc" : "", pendientes.length ? "Montaje incompleto" : "Sin instrucciones", estadoEjecucion.mensaje));
+  } else {
+    validarPrograma(codigo);
+    const resultado = ejecucion.resultado;
+    if (estadoEjecucion.pendiente) resultadoEl.append(estado("○", "", "Validando…", "Preparando la traza del programa."));
+    else if (!resultado?.valido) resultadoEl.append(estado("!", "errc", resultado?.etapa === "runtime" ? "Error de ejecución" : "Programa sin ejecutar", resultado?.mensaje));
+    else if (resultado.etapa === "limite") resultadoEl.append(estado("!", "errc", "Ejecución detenida por límite", resultado.mensaje));
+    else {
+      const finales = resultado.pasos.at(-1) || {};
+      const resumen = Object.entries(finales).map(([id, valores]) => `${etiquetas.get(id) || id} queda en ${mostrarPila(valores)}`).join("\n");
+      resultadoEl.append(estado("✓", "okc", origenPrograma === "camara" ? "Texto válido · uniones por confirmar" : "Programa válido", resumen ? "Al terminar, " + resumen + "." : ""));
+    }
   }
-  const seleccion = $("seleccion"); seleccion.replaceChildren();
-  const p = montaje.piezas.get(seleccionado);
-  if (p) {
-    const descripcion = document.createElement("div");
-    descripcion.textContent = `${p.tipo === "operacion" ? p.token : p.contenido.texto} · ${p.union ? "encajado" : "suelto"}`;
-    seleccion.append(descripcion);
-    if (p.tipo === "parametro") seleccion.append(boton("Editar", () => editar(p.id), "accion secundaria"));
-    if (!p.union) seleccion.append(boton("Encajar", () => {
-      const destino = encajes.find(e => e.bloqueId === bloqueActivo && montaje.puedeAcoplar(p.id, e.bloqueId, e.slot)) || encajes.find(e => montaje.puedeAcoplar(p.id, e.bloqueId, e.slot));
-      if (!destino) { aviso("No hay un encaje libre compatible con esta ficha."); return; }
-      manual(); montaje.acoplar(p.id, destino.bloqueId, destino.slot); delete p.observada; actualizar(); aviso("Ficha encajada.");
-    }, "accion"));
-    if (p.union) seleccion.append(boton("Retirar", () => {
-      manual(); const pos = mallasPiezas.get(p.id).position.clone(); pos.z += 40; pos.y = alturaLibre(p);
-      montaje.desacoplar(p.id, pos.toArray()); delete p.observada; actualizar(); aviso("Ficha retirada. Puedes arrastrarla a otro encaje.");
-    }, "accion secundaria"));
-    seleccion.append(boton("Eliminar ficha", () => { manual(); montaje.desacoplar(p.id); montaje.piezas.delete(p.id); seleccionado = null; actualizar(); }, "accion secundaria"));
-  }
+  if (pagina === "ejecucion") dibujarEjecucion(ejecucion, montaje, estadoEjecucion);
+
+  propiedades(montaje.bloque(bloqueActivo), montaje.bloques.findIndex(b => b.id === bloqueActivo), programa, etiquetas);
 }
 function actualizar() { reconstruirEscena(); reconstruirPanel(); }
 function posicionSuelta() {
@@ -185,13 +530,49 @@ const editor = crearEditor((contenido, destino) => {
     const p = montaje.piezas.get(destino.piezaId); if (!p) return; p.contenido = contenido; seleccionado = p.id;
   } else {
     const p = montaje.agregarParametro(contenido, posicionSuelta()); seleccionado = p.id;
-    if (destino.bloqueId) montaje.acoplar(p.id, destino.bloqueId, destino.slot);
+    if (destino.bloqueId) { montaje.acoplar(p.id, destino.bloqueId, destino.slot); sonarEncaje(); }
   }
   actualizar(); aviso("Parámetro listo. Arrástralo para moverlo o cambiarlo de encaje."); encuadrar();
 });
-function editar(id) { const p = montaje.piezas.get(id); if (p?.tipo === "parametro") { manual(); editor.abrir({ piezaId: id }, p.contenido); } }
-$("nuevo-parametro").onclick = () => { if (listo) { manual(); editor.abrir(); } };
-function agregarOperacion(token, objetivo = null) {
+function situarEditor(objetivo = {}) {
+  const dialogo = $("editor-parametro");
+  let ancla = null;
+  if (objetivo.piezaId) ancla = mallasPiezas.get(objetivo.piezaId)?.position.clone();
+  else if (objetivo.bloqueId != null) {
+    const b = montaje.bloque(objetivo.bloqueId);
+    if (b) ancla = puntoEncaje(b, objetivo.slot ?? 0);
+  }
+  const r = canvas.getBoundingClientRect();
+  const margen = 12, ancho = 272, alto = dialogo.offsetHeight || 420;
+  let x = r.left + r.width / 2 + 40, y = r.top + r.height / 2 - alto / 2;
+  if (ancla) {
+    const p = ancla.clone().project(camara);
+    x = r.left + (p.x + 1) / 2 * r.width + 28;
+    y = r.top + (1 - p.y) / 2 * r.height - alto / 2;
+  }
+  const limiteDerecho = $("panel").getBoundingClientRect().left - margen - ancho;
+  const limiteIzquierdo = $("paleta").getBoundingClientRect().right + margen;
+  dialogo.style.left = `${Math.max(limiteIzquierdo, Math.min(x, limiteDerecho))}px`;
+  dialogo.style.top = `${Math.max(margen, Math.min(y, window.innerHeight - alto - margen))}px`;
+}
+function abrirEditor(objetivo, contenido) {
+  editor.abrir(objetivo, contenido);
+  situarEditor(objetivo);
+}
+function editar(id) { const p = montaje.piezas.get(id); if (p?.tipo === "parametro") { manual(); abrirEditor({ piezaId: id }, p.contenido); } }
+$("nuevo-parametro").onclick = () => { if (listo) { manual(); abrirEditor(); } };
+function limpiarObservadas() { for (const p of montaje.piezas.values()) delete p.observada; }
+function siguientePosicion() {
+  const previos = montaje.bloques.filter(b => !b.virtual);
+  if (!previos.length) return [0, 0, 0];
+  const ultimo = previos[previos.length - 1];
+  return posicionPosterior(ultimo);
+}
+function capacidadDe(token) {
+  const [min, max] = OPERACIONES[token];
+  return min === max ? min : Number($("capacidad-mixtas").value);
+}
+function agregarOperacion(token, objetivo = null, posicion = null, conectar = false) {
   if (!listo || !OPERACIONES[token]) return;
   manual();
   if (objetivo && objetivo.slot === -1) {
@@ -200,21 +581,160 @@ function agregarOperacion(token, objetivo = null) {
     if (!montaje.acoplar(p.id, objetivo.bloqueId, -1)) { montaje.piezas.delete(p.id); aviso("Esta operación necesita un bloque de otro tamaño o un encaje vacío."); return; }
     seleccionado = p.id; bloqueActivo = objetivo.bloqueId;
   } else {
-    const [min, max] = OPERACIONES[token];
-    const capacidad = min === max ? min : Number($("capacidad-mixtas").value);
-    const b = montaje.agregarBloque(token, capacidad, [0, 0, montaje.bloques.filter(b => !b.virtual).length * 80]);
+    const anterior = montaje.bloques.filter(b => !b.virtual).at(-1);
+    const b = montaje.agregarBloque(token, capacidadDe(token), posicion || siguientePosicion());
+    if (anterior && (!posicion || conectar)) unir(montaje, anterior, b);
     bloqueActivo = b.id; seleccionado = b.operacion;
   }
-  actualizar(); encuadrar(); aviso("Operación encajada. Añade parámetros libres o pulsa un P vacío para completarla.");
+  actualizar();
+  if (!posicion) encuadrar();
+  aviso("Operación encajada. Añade parámetros libres o pulsa un P vacío para completarla.");
+}
+function crearFantasmaFijacion() {
+  const grupo = new THREE.Group();
+  const pieza = new THREE.Mesh(cuna, new THREE.MeshLambertMaterial({
+    color: 0xffc700, flatShading: true, transparent: true, opacity: 0.6, depthWrite: false,
+  }));
+  grupo.add(pieza);
+  grupo.renderOrder = 10;
+  escena.add(grupo);
+  return grupo;
+}
+function crearFantasma(token) {
+  const capacidad = capacidadDe(token);
+  const grupo = new THREE.Group();
+  const cuerpo = new THREE.Mesh(geometrias[capacidad], new THREE.MeshStandardMaterial({
+    color: COLOR_FAMILIA[FAMILIA[token]] ?? 0x2a6f6a, roughness: 0.65,
+    transparent: true, opacity: 0.6, depthWrite: false,
+  }));
+  grupo.add(cuerpo);
+  const ficha = crearFichaOperacion(operaciones[token]);
+  ficha.position.copy(posicionEncaje(-1));
+  const translucido = m => {
+    const c = m.clone();
+    c.transparent = true; c.opacity = 0.85; c.depthWrite = false;
+    return c;
+  };
+  ficha.traverse(o => {
+    if (!o.material) return;
+    o.material = Array.isArray(o.material) ? o.material.map(translucido) : translucido(o.material);
+  });
+  grupo.add(ficha);
+  grupo.renderOrder = 10;
+  escena.add(grupo);
+  return grupo;
+}
+function encajeLibreCercano(token, evento) {
+  const [min, max] = OPERACIONES[token];
+  const r = canvas.getBoundingClientRect();
+  let mejor = null, distancia = 1;
+  for (const e of encajes) {
+    if (e.slot !== -1) continue;
+    const b = montaje.bloque(e.bloqueId);
+    if (!b || b.operacion || b.capacidad < min || b.capacidad > max) continue;
+    const centro = e.posicion.clone().project(camara);
+    if (centro.z < -1 || centro.z > 1) continue;
+    const x = r.left + (centro.x + 1) * r.width / 2, y = r.top + (1 - centro.y) * r.height / 2;
+    const d = Math.hypot(evento.clientX - x, evento.clientY - y) / 55;
+    if (d < distancia) { mejor = e; distancia = d; }
+  }
+  return mejor;
+}
+function sobreLienzo(evento) {
+  const r = canvas.getBoundingClientRect();
+  if (evento.clientX < r.left || evento.clientX > r.right || evento.clientY < r.top || evento.clientY > r.bottom) return false;
+  for (const selector of ["#paleta", "#panel", ".barra"]) {
+    const caja = document.querySelector(selector).getBoundingClientRect();
+    if (evento.clientX >= caja.left && evento.clientX <= caja.right && evento.clientY >= caja.top && evento.clientY <= caja.bottom) return false;
+  }
+  return true;
+}
+const PLANO_MESA = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function terminarNuevo(cancelar = false) {
+  if (!nuevoArrastre) return;
+  const a = nuevoArrastre;
+  nuevoArrastre = null;
+  if (a.fantasma) {
+    escena.remove(a.fantasma);
+    a.fantasma.traverse(o => {
+      if (!o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+    });
+  }
+  a.pieza.classList.remove("arrastrando");
+  if (a.pieza.hasPointerCapture(a.puntero)) a.pieza.releasePointerCapture(a.puntero);
+  actualizarEncajes(null);
+  if (cancelar) { reconstruirPanel(); aviso("Arrastre cancelado."); return; }
+  if (a.fijacion) {
+    if (!a.movido || !a.punto) { aviso("Arrastra la cuña hasta la mesa para colocarla."); return; }
+    manual();
+    fijaciones.push({ posicion: [a.punto.x, ALTURA_CUNA, a.punto.z], angulo: 0 });
+    actualizar();
+    aviso("Cuña colocada. Doble clic para quitarla.");
+    return;
+  }
+  if (!a.movido) { agregarOperacion(a.token); return; }
+  if (a.candidato) agregarOperacion(a.token, { bloqueId: a.candidato.bloqueId, slot: -1 });
+  else if (a.punto) agregarOperacion(a.token, null, [a.punto.x, 0, a.punto.z], a.conectar);
+  else { reconstruirPanel(); aviso("Suelta el bloque sobre la mesa."); }
 }
 for (const pieza of document.querySelectorAll(".pieza-paleta")) {
-  pieza.tabIndex = 0; pieza.setAttribute("role", "button"); pieza.setAttribute("aria-label", `Añadir ${pieza.dataset.token}`);
-  pieza.addEventListener("click", () => agregarOperacion(pieza.dataset.token));
-  pieza.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); agregarOperacion(pieza.dataset.token); } });
-  pieza.addEventListener("dragstart", e => {
-    e.dataTransfer.setData("token", pieza.dataset.token); e.dataTransfer.effectAllowed = "copy";
-    const imagen = pieza.querySelector("img"); if (imagen?.complete) e.dataTransfer.setDragImage(imagen, 24, 24);
+  pieza.tabIndex = 0; pieza.setAttribute("role", "button"); pieza.setAttribute("aria-label", `Añadir ${pieza.dataset.token || "cuña"}`);
+  pieza.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    if (pieza.dataset.fijacion) { manual(); fijaciones.push({ posicion: [posicionSuelta()[0], ALTURA_CUNA, posicionSuelta()[2]], angulo: 0 }); actualizar(); }
+    else agregarOperacion(pieza.dataset.token);
   });
+  pieza.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || !listo || nuevoArrastre) return;
+    e.preventDefault();
+    manual();
+    nuevoArrastre = { token: pieza.dataset.token, fijacion: pieza.dataset.fijacion || null, pieza, puntero: e.pointerId, inicio: [e.clientX, e.clientY], movido: false, candidato: null, punto: null, fantasma: null, destino: null, giro: 0 };
+    pieza.setPointerCapture(e.pointerId);
+  });
+  pieza.addEventListener("pointermove", e => {
+    const a = nuevoArrastre;
+    if (!a || a.puntero !== e.pointerId) return;
+    if (!a.movido && Math.hypot(e.clientX - a.inicio[0], e.clientY - a.inicio[1]) < 4) return;
+    if (!a.movido) {
+      a.movido = true;
+      a.fantasma = a.fijacion ? crearFantasmaFijacion() : crearFantasma(a.token);
+      pieza.classList.add("arrastrando");
+      rayo(e);
+      const inicial = raycaster.ray.intersectPlane(PLANO_MESA, new THREE.Vector3());
+      if (inicial) a.fantasma.position.set(inicial.x, 0, inicial.z);
+      reconstruirPanel();
+    }
+    if (!sobreLienzo(e)) { a.fantasma.visible = false; a.punto = null; a.candidato = null; actualizarEncajes(null); aviso("Suelta sobre la mesa para colocar el bloque."); return; }
+    a.fantasma.visible = true;
+    rayo(e);
+    const punto = raycaster.ray.intersectPlane(PLANO_MESA, new THREE.Vector3());
+    if (!punto) return;
+    a.punto = punto;
+    a.candidato = a.fijacion ? null : encajeLibreCercano(a.token, e);
+    if (a.candidato) {
+      const b = montaje.bloque(a.candidato.bloqueId);
+      a.destino = new THREE.Vector3(...b.posicion); a.giro = b.angulo;
+    } else {
+      a.destino = new THREE.Vector3(punto.x, 0, punto.z); a.giro = 0;
+      const ultimo = montaje.bloques.filter(b => !b.virtual).at(-1);
+      a.conectar = false;
+      if (!a.fijacion && ultimo) {
+        const destino = new THREE.Vector3(...posicionPosterior(ultimo));
+        const pantalla = destino.clone().project(camara), r = canvas.getBoundingClientRect();
+        if (Math.hypot(e.clientX - r.left - (pantalla.x + 1) * r.width / 2, e.clientY - r.top - (1 - pantalla.y) * r.height / 2) < 65) {
+          a.destino = destino; a.giro = ultimo.angulo; a.conectar = true;
+        }
+      }
+    }
+    actualizarEncajes(a.candidato);
+    aviso(a.fijacion ? "Suelta para dejar la cuña en la mesa."
+      : a.candidato ? "Suelta para encajar la operación en este bloque."
+      : a.conectar ? "Suelta para unir este bloque al anterior." : `Suelta para dejar ${a.token} en la mesa.`);
+  });
+  pieza.addEventListener("pointerup", e => { if (nuevoArrastre?.puntero === e.pointerId) terminarNuevo(); });
+  pieza.addEventListener("pointercancel", () => terminarNuevo(true));
 }
 function rayo(evento) {
   const r = canvas.getBoundingClientRect();
@@ -225,14 +745,12 @@ function objetivo(evento) {
   for (const hit of raycaster.intersectObjects(objetos.children, true)) {
     let o = hit.object;
     while (o && o !== objetos) {
-      if (o.userData.piezaId || o.userData.encaje || o.userData.bloqueId) return { ...o.userData, objeto: o };
+      if (o.userData.piezaId || o.userData.encaje || o.userData.bloqueId || o.userData.fijacion != null) return { ...o.userData, objeto: o };
       o = o.parent;
     }
   }
   return null;
 }
-contenedor.addEventListener("dragover", e => e.preventDefault());
-contenedor.addEventListener("drop", e => { e.preventDefault(); agregarOperacion(e.dataTransfer.getData("token"), objetivo(e)?.encaje); });
 function mejorEncaje(id, evento) {
   // Pick in screen space: the loose piece and the socket sit at different
   // heights, so a horizontal drag plane alone misses elevated sockets.
@@ -251,7 +769,7 @@ function mejorEncaje(id, evento) {
   return mejor;
 }
 canvas.addEventListener("pointerdown", e => {
-  if (e.button !== 0 || !listo) return;
+  if (e.button !== 0 || !listo || pagina !== "mesa" || gravedadActiva) return;
   const hit = objetivo(e);
   if (hit?.piezaId) {
     manual(); seleccionado = hit.piezaId;
@@ -264,7 +782,7 @@ canvas.addEventListener("pointerdown", e => {
     controles.enabled = false; canvas.setPointerCapture(e.pointerId); e.stopImmediatePropagation(); reconstruirPanel();
   } else if (hit?.encaje) {
     e.stopImmediatePropagation(); manual(); bloqueActivo = hit.encaje.bloqueId;
-    if (hit.encaje.slot >= 0) editor.abrir(hit.encaje);
+    if (hit.encaje.slot >= 0) abrirEditor(hit.encaje);
     else aviso("Arrastra una operación de la paleta a este encaje.");
   } else if (hit?.bloqueId) { bloqueActivo = hit.bloqueId; seleccionado = null; reconstruirPanel(); }
 }, true);
@@ -288,7 +806,7 @@ function terminarArrastre(cancelar = false) {
     if (cancelar) {
       p.posicion = a.original; p.observada = a.observada;
       if (a.union) montaje.acoplar(p.id, a.union.bloqueId, a.union.slot);
-    } else if (a.candidato) montaje.acoplar(p.id, a.candidato.bloqueId, a.candidato.slot);
+    } else if (a.candidato) { montaje.acoplar(p.id, a.candidato.bloqueId, a.candidato.slot); sonarEncaje(); }
     else { const pos = mallasPiezas.get(p.id).position.clone(); pos.y = alturaLibre(p); p.posicion = pos.toArray(); }
   }
   arrastre = null; controles.enabled = true;
@@ -299,11 +817,24 @@ function terminarArrastre(cancelar = false) {
 canvas.addEventListener("pointerup", () => terminarArrastre());
 canvas.addEventListener("pointercancel", () => terminarArrastre(true));
 canvas.addEventListener("lostpointercapture", () => terminarArrastre(true));
-window.addEventListener("keydown", e => { if (e.key === "Escape" && arrastre) { e.preventDefault(); terminarArrastre(true); } });
-canvas.addEventListener("dblclick", e => { const hit = objetivo(e); if (hit?.piezaId) editar(hit.piezaId); });
+window.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const dialogo = $("editor-parametro");
+  if (dialogo.open) { e.preventDefault(); dialogo.close(); return; }
+  if (arrastre) { e.preventDefault(); terminarArrastre(true); }
+  if (nuevoArrastre) { e.preventDefault(); terminarNuevo(true); }
+});
+canvas.addEventListener("dblclick", e => {
+  if (pagina !== "mesa") return;
+  const hit = objetivo(e);
+  if (hit?.piezaId) editar(hit.piezaId);
+  else if (hit?.fijacion != null) { manual(); fijaciones.splice(hit.fijacion, 1); actualizar(); aviso("Cuña retirada."); }
+});
 
-function reemplazarProgramaDesdeCamara(instrucciones) {
-  if (arrastre) return;
+function reemplazarProgramaDesdeCamara(instrucciones, etiquetas = {}) {
+  if (arrastre || nuevoArrastre || $("editor-parametro").open) return;
+  origenPrograma = "camara";
+  incertidumbreCamara = "";
   const nuevo = new Montaje();
   const fisicas = instrucciones.filter(i => i.posicion);
   const origen = fisicas.length ? [fisicas.reduce((s, i) => s + i.posicion[0], 0) / fisicas.length, fisicas.reduce((s, i) => s + i.posicion[1], 0) / fisicas.length, Math.min(...fisicas.map(i => i.posicion[2]))] : [0, 0, 0];
@@ -315,15 +846,18 @@ function reemplazarProgramaDesdeCamara(instrucciones) {
     if (i.direccion) b.angulo = Math.atan2(i.direccion[1], i.direccion[0]);
     i.operandos.slice(0, capacidad).forEach((valor, j) => {
       if (valor === SIN_LEER) return;
-      const p = nuevo.agregarParametro(parametroDesdeTexto(valor)); nuevo.acoplar(p.id, b.id, j);
+      const p = nuevo.agregarParametro(parametroDesdeTexto(etiquetas[valor] || valor)); nuevo.acoplar(p.id, b.id, j);
       if (i.posiciones_operandos?.[j]) { p.observada = convertir(i.posiciones_operandos[j]); p.observada[1] += 23; }
     });
   });
   montaje = nuevo; seleccionado = null; bloqueActivo = null;
   actualizar();
 }
+let websocketCamara = null;
 function conectarCamara() {
+  if (!$("camara-activa").checked || (websocketCamara && websocketCamara.readyState < 2)) return;
   const ws = new WebSocket("ws://localhost:8765");
+  websocketCamara = ws;
   ws.onopen = () => { $("estado-camara").textContent = "Cámara: conectada"; $("estado-camara").className = "conectado"; };
   ws.onclose = () => { $("estado-camara").textContent = "Cámara: desconectada"; $("estado-camara").className = "desconectado"; setTimeout(conectarCamara, 2000); };
   ws.onerror = () => ws.close();
@@ -333,12 +867,104 @@ function conectarCamara() {
     catch (error) { aviso(`No se pudo reconstruir la lectura: ${error.message}`); }
   };
 }
+let gravedadActiva = false, cuerposGravedad = [], instanteGravedad = 0;
+function prepararGravedad() {
+  cuerposGravedad = []; instanteGravedad = performance.now();
+  const uniones = conjuntosRigidos(montaje, conexionesValidas(montaje)), grupos = new Map();
+  for (const objeto of [...objetos.children]) {
+    const pieza = montaje.piezas.get(objeto.userData.piezaId);
+    const bloque = objeto.userData.bloqueId || pieza?.union?.bloqueId;
+    const clave = bloque ? uniones.get(bloque) : objeto.uuid;
+    if (!grupos.has(clave)) { const grupo = new THREE.Group(); objetos.add(grupo); grupos.set(clave, grupo); }
+    grupos.get(clave).add(objeto);
+  }
+  for (const grupo of grupos.values()) {
+    const caja = new THREE.Box3().setFromObject(grupo);
+    if (caja.isEmpty()) continue;
+    const suelo = -caja.min.y;
+    const caida = new CaidaVertical(); grupo.position.y = suelo + caida.altura;
+    cuerposGravedad.push({ grupo, caida, suelo });
+  }
+}
+function alternarGravedad(activa = !gravedadActiva) {
+  if (!listo || arrastre || nuevoArrastre) return;
+  gravedadActiva = activa; document.body.classList.toggle('modo-gravedad', activa);
+  $('ver-gravedad').textContent = activa ? 'Salir de gravedad' : 'Ver con gravedad';
+  $('ver-gravedad').setAttribute('aria-pressed', String(activa)); $('repetir-gravedad').hidden = !activa;
+  if (activa) { vistas.detenerLectura(); $('camara-activa').checked = false; }
+  reconstruirEscena();
+  if (activa) encuadrar();
+  aviso(activa ? 'Gravedad vertical: cada conjunto encajado cae como una pieza rígida.' : 'Posiciones originales restauradas.');
+}
+$('ver-gravedad').onclick = () => alternarGravedad();
+$('repetir-gravedad').onclick = () => { if (gravedadActiva) { reconstruirEscena(); encuadrar(); } };
+let montajeGuardado = null;
+const vistas = crearVistas({
+  navegar: cambiarPagina,
+  verGravedad: () => alternarGravedad(true),
+  cargarEjemplo(ejemplo, destino) {
+    if (!listo || arrastre || nuevoArrastre) return false;
+    if (!montajeGuardado) montajeGuardado = { montaje, fijaciones, origenPrograma };
+    vistas.detenerLectura(); $("camara-activa").checked = false;
+    montaje = montajeEjemplo(ejemplo); fijaciones = []; origenPrograma = "manual";
+    seleccionado = null; bloqueActivo = null; invalidarEjecucion("Cargando ejemplo.");
+    cambiarPagina(destino); return true;
+  },
+  restaurar() {
+    if (!montajeGuardado || !listo || arrastre || nuevoArrastre) return false;
+    vistas.detenerLectura(); $("camara-activa").checked = false;
+    ({ montaje, fijaciones, origenPrograma } = montajeGuardado); montajeGuardado = null;
+    seleccionado = null; bloqueActivo = null; invalidarEjecucion("Montaje restaurado.");
+    cambiarPagina("mesa"); return true;
+  },
+  inventario() {
+    const b = montaje.bloques.filter(b => !b.virtual);
+    const p = [...montaje.piezas.values()];
+    return { bloque_1_param: b.filter(b => b.capacidad === 1).length, bloque_2_param: b.filter(b => b.capacidad === 2).length,
+      parametro: p.filter(p => p.tipo === 'operacion').length, ficha_parametro: p.filter(p => p.tipo === 'parametro').length,
+      conector: conexionesValidas(montaje).length, tuerca: b.length, cuna: fijaciones.length };
+  },
+  incertidumbre(texto) {
+    if (origenPrograma !== 'camara') return;
+    incertidumbreCamara = texto;
+    invalidarEjecucion(texto);
+    reconstruirPanel();
+    reconstruirEscena();
+  },
+  recibir(instrucciones, etiquetas) {
+    if (!listo || arrastre || nuevoArrastre || $("editor-parametro").open) return false;
+    reemplazarProgramaDesdeCamara(instrucciones, etiquetas); return true;
+  },
+});
+$("abrir-camaras").onclick = () => cambiarPagina("camaras");
+$("camara-activa").addEventListener("change", () => { if ($("camara-activa").checked) conectarCamara(); else websocketCamara?.close(); });
+
 async function iniciar() {
   const cargador = new STLLoader();
-  const [uno, dos, lamina] = await Promise.all(["bloque_1_param", "bloque_2_param", "parametro"].map(n => cargador.loadAsync(`./modelos/${n}.stl`)));
+  const nombres = ["bloque_1_param", "bloque_2_param", "parametro", "conector", "tuerca", "cuna"];
+  const [uno, dos, lamina, laminaConector, laminaTuerca, laminaCuna] = await Promise.all(nombres.map(n => cargador.loadAsync(`./modelos/${n}.stl`)));
   geometrias = { 1: prepararBloque(uno, 1), 2: prepararBloque(dos, 2) };
-  operaciones = separarOperaciones(lamina); lamina.dispose(); listo = true;
-  ajustarTamano(); actualizar(); controles.update(); conectarCamara();
-  renderizador.setAnimationLoop(() => { controles.update(); renderizador.render(escena, camara); });
+  operaciones = separarOperaciones(lamina); lamina.dispose();
+  conector = prepararConector(laminaConector); laminaConector.dispose();
+  tuerca = prepararTuerca(laminaTuerca);
+  cuna = prepararCuna(laminaCuna);
+  listo = true;
+  ajustarTamano(); actualizar(); controles.update();
+  renderizador.setAnimationLoop(() => {
+    if (!["mesa", "ejecucion"].includes(pagina)) return;
+    controles.update();
+    if (gravedadActiva) {
+      const ahora = performance.now(), dt = (ahora - instanteGravedad) / 1000; instanteGravedad = ahora;
+      for (const cuerpo of cuerposGravedad) cuerpo.grupo.position.y = cuerpo.suelo + cuerpo.caida.avanzar(dt);
+    }
+    // Suavizar el fantasma: seguir el puntero al instante se siente nervioso.
+    if (nuevoArrastre?.fantasma && nuevoArrastre.destino) {
+      nuevoArrastre.fantasma.position.lerp(nuevoArrastre.destino, 0.35);
+      const giro = nuevoArrastre.giro ?? 0;
+      nuevoArrastre.fantasma.rotation.y += (giro - nuevoArrastre.fantasma.rotation.y) * 0.35;
+    }
+    renderizador.render(escena, camara);
+    dibujarSeleccion();
+  });
 }
 iniciar().catch(error => { resultadoEl.textContent = `No se pudo cargar el simulador: ${error.message}`; resultadoEl.className = "invalido"; });
