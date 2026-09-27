@@ -5,7 +5,7 @@ import numpy as np
 
 RAIZ_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUTA_RENDER = os.path.join(RAIZ_REPO, "public", "imgs", "Renders", "Ops Front.png")
-CARPETA_REFERENCIAS = os.path.join(os.path.dirname(__file__), "referencias")
+REFERENCIAS = os.path.join(os.path.dirname(__file__), "referencias")
 
 ETIQUETAS_POR_POSICION = {
     (0, 0): "MOD",
@@ -42,13 +42,13 @@ def recortar_iconos(ruta_render):
 
 
 def principal() -> None:
-    os.makedirs(CARPETA_REFERENCIAS, exist_ok=True)
+    os.makedirs(REFERENCIAS, exist_ok=True)
     sembrados = []
     for posicion, recorte in recortar_iconos(RUTA_RENDER):
         etiqueta = ETIQUETAS_POR_POSICION.get(posicion)
         if etiqueta is None:
             continue
-        ruta_salida = os.path.join(CARPETA_REFERENCIAS, f"{etiqueta}.jpg")
+        ruta_salida = os.path.join(REFERENCIAS, f"{etiqueta}.jpg")
         cv2.imwrite(ruta_salida, recorte)
         sembrados.append(etiqueta)
         print(f"generado {ruta_salida}")

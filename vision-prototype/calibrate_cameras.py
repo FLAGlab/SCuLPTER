@@ -5,7 +5,7 @@ import sys
 import cv2
 import numpy as np
 
-BOARD_SIZE = (9, 6)  # inner corners
+BOARD_SIZE = (9, 6)
 SQUARE_SIZE_MM = 25.0
 MIN_SAMPLES = 15
 CORNER_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -89,19 +89,14 @@ def calibrate_intrinsics(source, out_path: str) -> None:
     print(f"saved intrinsics to {out_path}")
 
 
-def table_pose(rvec, tvec) -> dict:
-    """Board pose (camera = R·board + t) as a table frame with z pointing up.
-
-    solvePnP's board frame has z going into the board; flip it so that the
-    camera, which looks down at the table, ends up on the positive side.
-    """
+def pose_mesa(rvec, tvec) -> dict:
     rotation, _ = cv2.Rodrigues(rvec)
     translation = np.asarray(tvec, dtype=float).reshape(3)
     camera_in_board = -rotation.T @ translation
     if camera_in_board[2] < 0:
-        flip = np.diag([1.0, -1.0, -1.0])       # keeps x, flips y and z: still right-handed
+        flip = np.diag([1.0, -1.0, -1.0])
         rotation = rotation @ flip
-    return {"rotation": rotation.tolist(), "translation": translation.tolist()}
+    return {"rot": rotation.tolist(), "tras": translation.tolist()}
 
 
 def load_intrinsics(path: str):
@@ -167,14 +162,14 @@ def calibrate_extrinsics(source_a, source_b, intrinsics_a: str, intrinsics_b: st
     )
     print(f"stereo reprojection error: {error:.4f}px")
 
-    # The board lies on the table in the first stereo sample, so its pose in
-    # camera A is the table frame: x/y on the surface, z up towards the camera.
+
+
     ok, rvec, tvec = cv2.solvePnP(obj_pts[0], pts_a[0], mtx_a, dist_a)
-    table = table_pose(rvec, tvec) if ok else None
-    if table is None:
+    mesa = pose_mesa(rvec, tvec) if ok else None
+    if mesa is None:
         print("could not recover the table pose from the first sample; 3D output stays in camera-A coordinates")
 
-    data = {"rotation": rotation.tolist(), "translation": translation.tolist(), "table": table}
+    data = {"rot": rotation.tolist(), "tras": translation.tolist(), "mesa": mesa}
     with open(out_path, "w") as f:
         json.dump(data, f, indent=2)
     print(f"saved extrinsics to {out_path}")

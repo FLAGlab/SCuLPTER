@@ -10,7 +10,7 @@ import time
 import cv2
 import websockets
 
-import clasificador_simbolos
+import clasificador_simbolos as clasif
 
 RAIZ_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FUENTES_SCALA = [
@@ -23,17 +23,17 @@ FUENTES_SCALA = [
 ]
 
 TOLERANCIA_FILA_PX = 40
-VENTANA_ESTABILIDAD_S = 0.8
-MOVIMIENTO_ESTABLE_PX = 6
-AREA_MINIMA_FRACCION = 0.002
-AREA_MAXIMA_FRACCION = 0.15      # una ficha nunca ocupa más que esto del cuadro; la caja o la mesa sí
-PROPORCION_MAXIMA = 1.8          # las fichas son cuadradas: ancho/alto (o alto/ancho) mayor que esto no es ficha
-CARPETA_REGIONES = None          # --guardar-regiones: vuelca cada región con su puntaje para depurar
+ESTABILIDAD_S = 0.8
+MOVIMIENTO_PX = 6
+AREA_MINIMA = 0.002
+AREA_MAXIMA = 0.15
+PROPORCION_MAXIMA = 1.8
+VOLCADO = None
 PUERTO_WEBSOCKET = 8765
-INTERVALO_CLASIFICACION_S = 0.35
+INTERVALO_S = 0.35
 ANCHO_TRABAJO_PX = 640
-TAMANO_BLOQUE_UMBRAL = 35
-CONSTANTE_UMBRAL = 7
+BLOQUE_UMBRAL = 35
+C_UMBRAL = 7
 
 
 def reducir_resolucion(cuadro):
@@ -44,19 +44,19 @@ def reducir_resolucion(cuadro):
     return cv2.resize(cuadro, (ANCHO_TRABAJO_PX, int(alto * factor)))
 
 
-def detectar_regiones_por_contorno(cuadro):
+def regiones(cuadro):
     gris = cv2.cvtColor(cuadro, cv2.COLOR_BGR2GRAY)
     difuminado = cv2.GaussianBlur(gris, (5, 5), 0)
     binaria = cv2.adaptiveThreshold(
         difuminado, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,
-        TAMANO_BLOQUE_UMBRAL, CONSTANTE_UMBRAL,
+        BLOQUE_UMBRAL, C_UMBRAL,
     )
     contornos, _ = cv2.findContours(binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     alto_cuadro, ancho_cuadro = gris.shape
     area_cuadro = ancho_cuadro * alto_cuadro
-    area_minima = area_cuadro * AREA_MINIMA_FRACCION
-    area_maxima = area_cuadro * AREA_MAXIMA_FRACCION
+    area_minima = area_cuadro * AREA_MINIMA
+    area_maxima = area_cuadro * AREA_MAXIMA
 
     regiones = []
     for contorno in contornos:
@@ -71,93 +71,85 @@ def detectar_regiones_por_contorno(cuadro):
     return regiones
 
 
-def _describir_candidatos(candidatos, cuantos: int = 2) -> str:
+def mejores(candidatos, cuantos: int = 2) -> str:
     return ", ".join(f"{lexema} {puntaje:.2f}" for lexema, puntaje in candidatos[:cuantos])
 
 
-def _guardar_region(recorte, indice: int, lexema: str | None, candidatos) -> None:
-    if CARPETA_REGIONES is None:
+def volcar(recorte, indice: int, lexema: str | None, candidatos) -> None:
+    if VOLCADO is None:
         return
-    os.makedirs(CARPETA_REGIONES, exist_ok=True)
+    os.makedirs(VOLCADO, exist_ok=True)
     mejor = f"{candidatos[0][0]}_{candidatos[0][1]:.2f}" if candidatos else "sin_candidatos"
     estado = lexema or "rechazada"
-    cv2.imwrite(os.path.join(CARPETA_REGIONES, f"{indice:02d}_{estado}_{mejor}.png"), recorte)
+    cv2.imwrite(os.path.join(VOLCADO, f"{indice:02d}_{estado}_{mejor}.png"), recorte)
 
 
-def detectar_en_cuadro(cuadro):
-    if not clasificador_simbolos.hay_referencias():
+def detectar(cuadro):
+    if not clasif.hay_referencias():
         return [], ["carpeta referencias/ vacía nada que reconocer todavía"]
 
     detecciones = []
     avisos = []
-    for indice, (recorte, cx, cy) in enumerate(detectar_regiones_por_contorno(cuadro)):
-        lexema, candidatos = clasificador_simbolos.reconocer_detallado(recorte)
-        _guardar_region(recorte, indice, lexema, candidatos)
+    for indice, (recorte, cx, cy) in enumerate(regiones(cuadro)):
+        lexema, candidatos = clasif.reconocer_con_puntajes(recorte)
+        volcar(recorte, indice, lexema, candidatos)
         if lexema:
             detecciones.append((lexema, cx, cy))
+        elif candidatos:
+            detecciones.append((clasif.SIN_LEER, cx, cy))
+            avisos.append(f"ficha en ({cx:.0f},{cy:.0f}) sin leer -- {mejores(candidatos)}")
         else:
-            avisos.append(f"región en ({cx:.0f},{cy:.0f}) rechazada -- {_describir_candidatos(candidatos)}")
+            avisos.append(f"región en ({cx:.0f},{cy:.0f}) descartada, sin trazo reconocible")
     return detecciones, avisos
 
 
-def elegir_mejor_vista(lecturas_por_camara):
-    mejor_indice = 0
-    mejor_puntaje = -1
-    for indice, (detecciones, avisos) in enumerate(lecturas_por_camara):
-        puntaje = len(detecciones) - len(avisos)
-        if puntaje > mejor_puntaje:
-            mejor_puntaje = puntaje
-            mejor_indice = indice
-    return mejor_indice
+def mejor_vista(lecturas):
+    puntajes = [len(det) - len(avisos) for det, avisos in lecturas]
+    return puntajes.index(max(puntajes)) if puntajes else 0
 
 
-def reconstruir_programa(detecciones: list[tuple[str, float, float]]) -> str:
-    detecciones_ordenadas = sorted(detecciones, key=lambda d: d[2])
-
-    filas: list[list[tuple[str, float, float]]] = []
-    for deteccion in detecciones_ordenadas:
-        colocado = False
-        for fila in filas:
-            if abs(fila[0][2] - deteccion[2]) <= TOLERANCIA_FILA_PX:
-                fila.append(deteccion)
-                colocado = True
+def filas(detecciones):
+    grupos = []
+    for deteccion in sorted(detecciones, key=lambda d: d[2]):
+        for grupo in grupos:
+            if abs(grupo[0][2] - deteccion[2]) <= TOLERANCIA_FILA_PX:
+                grupo.append(deteccion)
                 break
-        if not colocado:
-            filas.append([deteccion])
-
-    lineas = []
-    for fila in filas:
-        fila_ordenada = sorted(fila, key=lambda d: d[1])
-        lineas.append(" ".join(lexema for lexema, _, _ in fila_ordenada))
-    return "\n".join(lineas)
+        else:
+            grupos.append([deteccion])
+    return [sorted(grupo, key=lambda d: d[1]) for grupo in grupos]
 
 
-def programa_como_instrucciones(detecciones: list[tuple[str, float, float]]) -> list[dict]:
-    detecciones_ordenadas = sorted(detecciones, key=lambda d: d[2])
-    filas: list[list[tuple[str, float, float]]] = []
-    for deteccion in detecciones_ordenadas:
-        colocado = False
-        for fila in filas:
-            if abs(fila[0][2] - deteccion[2]) <= TOLERANCIA_FILA_PX:
-                fila.append(deteccion)
-                colocado = True
-                break
-        if not colocado:
-            filas.append([deteccion])
-
-    instrucciones = []
-    for fila in filas:
-        fila_ordenada = sorted(fila, key=lambda d: d[1])
-        tokens = [lexema for lexema, _, _ in fila_ordenada]
-        if not tokens:
-            continue
-        instrucciones.append({"token": tokens[0], "operandos": tokens[1:]})
-    return instrucciones
+def programa(detecciones):
+    return "\n".join(" ".join(lexema for lexema, _, _ in fila) for fila in filas(detecciones))
 
 
-def ejecutar_en_interprete(codigo: str) -> str:
+def pendientes(detecciones):
+    huecos = []
+    for numero, fila in enumerate(filas(detecciones), start=1):
+        for posicion, (lexema, cx, cy) in enumerate(fila):
+            if clasif.ilegible(lexema):
+                ranura = "la operación" if posicion == 0 else f"el parámetro {posicion}"
+                huecos.append(f"instrucción {numero}: {ranura} sin leer (ficha en {cx:.0f},{cy:.0f})")
+    return huecos
+
+
+def instrucciones(detecciones):
+    return [
+        {
+            "token": fila[0][0],
+            "operandos": [lexema for lexema, _, _ in fila[1:]],
+            "pendiente": any(clasif.ilegible(lexema) for lexema, _, _ in fila),
+        }
+        for fila in filas(detecciones) if fila
+    ]
+
+
+def ejecutar(codigo: str) -> str:
     if not codigo.strip():
         return "(todavía no hay instrucciones reconstruidas)"
+    if clasif.SIN_LEER in codigo:
+        return "(lectura incompleta, no se ejecuta)"
 
     with tempfile.NamedTemporaryFile("w", suffix=".scu", delete=False) as archivo:
         archivo.write(codigo + "\n")
@@ -183,35 +175,42 @@ def ejecutar_en_interprete(codigo: str) -> str:
         os.unlink(ruta_temporal)
 
 
-def reportar_consola(detecciones, avisos, indice_camara_usada, total_camaras, etiqueta: str = "") -> None:
-    codigo = reconstruir_programa(detecciones)
+def reportar(detecciones, avisos, camara, total, etiqueta="") -> None:
+    codigo = programa(detecciones)
+    huecos = pendientes(detecciones)
     print("\n" + "=" * 60)
     if etiqueta:
         print(etiqueta)
-    print(f"[vision] cámara usada: {indice_camara_usada + 1}/{total_camaras} -- {len(detecciones)} detección(es)")
+    print(f"[vision] cámara usada: {camara + 1}/{total} -- {len(detecciones)} detección(es)")
     for aviso in avisos:
         print(f"[vision]   ! {aviso}")
     print("[programa reconstruido]")
     print(codigo if codigo else "  (vacío)")
+    if huecos:
+        print(f"[lectura incompleta] {len(huecos)} ficha(s) sin leer, no se ejecuta")
+        for hueco in huecos:
+            print(f"  - {hueco}")
+        print("  muestra esas fichas a la cámara, o añade su plantilla con capturar_referencias.py")
+        return
     print("[intérprete scala]")
-    for linea in ejecutar_en_interprete(codigo).splitlines():
+    for linea in ejecutar(codigo).splitlines():
         print(f"  {linea}")
 
 
-def ejecutar_con_imagenes(rutas: list[str]) -> None:
+def desde_imagenes(rutas: list[str]) -> None:
     lecturas = []
     for ruta in rutas:
         cuadro = cv2.imread(ruta)
         if cuadro is None:
             sys.exit(f"no se pudo leer la imagen: {ruta}")
-        lecturas.append(detectar_en_cuadro(cuadro))
+        lecturas.append(detectar(cuadro))
 
-    indice_mejor = elegir_mejor_vista(lecturas)
+    indice_mejor = mejor_vista(lecturas)
     detecciones, avisos = lecturas[indice_mejor]
-    reportar_consola(detecciones, avisos, indice_mejor, len(rutas), etiqueta=f"Imágenes estáticas: {rutas}")
+    reportar(detecciones, avisos, indice_mejor, len(rutas), etiqueta=f"Imágenes estáticas: {rutas}")
 
 
-def resolver_fuente_camara(valor: str):
+def fuente(valor: str):
     try:
         return int(valor)
     except ValueError:
@@ -243,7 +242,7 @@ class ServidorSimulador:
         self.clientes -= cerradas
 
 
-async def ejecutar_con_camaras(fuentes: list, una_vez: bool, servidor: ServidorSimulador | None) -> None:
+async def desde_camaras(fuentes: list, una_vez: bool, servidor: ServidorSimulador | None) -> None:
     capturas = [cv2.VideoCapture(fuente) for fuente in fuentes]
     for captura, fuente in zip(capturas, fuentes):
         if not captura.isOpened():
@@ -274,10 +273,10 @@ async def ejecutar_con_camaras(fuentes: list, una_vez: bool, servidor: ServidorS
                 cuadros.append(reducir_resolucion(cuadro) if ok else None)
 
             ahora = time.time()
-            if ahora - ultima_clasificacion_ts >= INTERVALO_CLASIFICACION_S:
+            if ahora - ultima_clasificacion_ts >= INTERVALO_S:
                 ultima_clasificacion_ts = ahora
-                lecturas = [detectar_en_cuadro(c) if c is not None else ([], ["sin señal de cámara"]) for c in cuadros]
-                indice_mejor = elegir_mejor_vista(lecturas)
+                lecturas = [detectar(c) if c is not None else ([], ["sin señal de cámara"]) for c in cuadros]
+                indice_mejor = mejor_vista(lecturas)
 
             detecciones, avisos = lecturas[indice_mejor]
             posiciones = {f"{lexema}_{i}": (x, y) for i, (lexema, x, y) in enumerate(detecciones)}
@@ -286,7 +285,7 @@ async def ejecutar_con_camaras(fuentes: list, una_vez: bool, servidor: ServidorS
             if not hubo_movimiento and posiciones_previas is not None:
                 for clave, (x, y) in posiciones.items():
                     ox, oy = posiciones_previas[clave]
-                    if abs(x - ox) > MOVIMIENTO_ESTABLE_PX or abs(y - oy) > MOVIMIENTO_ESTABLE_PX:
+                    if abs(x - ox) > MOVIMIENTO_PX or abs(y - oy) > MOVIMIENTO_PX:
                         hubo_movimiento = True
                         break
 
@@ -295,7 +294,7 @@ async def ejecutar_con_camaras(fuentes: list, una_vez: bool, servidor: ServidorS
             posiciones_previas = posiciones
 
             clave_estable = tuple(sorted(posiciones.items()))
-            esta_estable = (ahora - estable_desde) >= VENTANA_ESTABILIDAD_S
+            esta_estable = (ahora - estable_desde) >= ESTABILIDAD_S
 
             for indice_cam, cuadro in enumerate(cuadros):
                 if cuadro is None:
@@ -311,9 +310,9 @@ async def ejecutar_con_camaras(fuentes: list, una_vez: bool, servidor: ServidorS
 
             if esta_estable and clave_estable != ultima_lectura_estable and detecciones:
                 ultima_lectura_estable = clave_estable
-                reportar_consola(detecciones, avisos, indice_mejor, len(capturas))
+                reportar(detecciones, avisos, indice_mejor, len(capturas))
                 if servidor is not None:
-                    instrucciones = programa_como_instrucciones(detecciones)
+                    instrucciones = instrucciones(detecciones)
                     await servidor.difundir({"tipo": "programa", "instrucciones": instrucciones})
                 if una_vez:
                     break
@@ -339,18 +338,18 @@ async def principal_async() -> None:
     )
     argumentos = parser.parse_args()
 
-    global CARPETA_REGIONES
-    CARPETA_REGIONES = argumentos.guardar_regiones
+    global VOLCADO
+    VOLCADO = argumentos.guardar_regiones
 
-    faltantes = clasificador_simbolos.simbolos_sin_referencia()
+    faltantes = clasif.sin_plantilla()
     if faltantes:
         print(f"[vision] símbolos en simbolos.json sin foto en referencias/: {', '.join(faltantes)}")
 
     if argumentos.imagen:
-        ejecutar_con_imagenes(argumentos.imagen)
+        desde_imagenes(argumentos.imagen)
         return
 
-    fuentes = [resolver_fuente_camara(c) for c in argumentos.camara] or [0]
+    fuentes = [fuente(c) for c in argumentos.camara] or [0]
 
     servidor = None
     if argumentos.servir_3d:
@@ -358,7 +357,7 @@ async def principal_async() -> None:
         await websockets.serve(servidor.manejar_cliente, "localhost", PUERTO_WEBSOCKET)
         print(f"servidor para el simulador 3D en ws://localhost:{PUERTO_WEBSOCKET}")
 
-    await ejecutar_con_camaras(fuentes, argumentos.una_vez, servidor)
+    await desde_camaras(fuentes, argumentos.una_vez, servidor)
 
 
 def principal() -> None:

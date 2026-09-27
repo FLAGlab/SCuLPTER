@@ -1,18 +1,3 @@
-"""Turns triangulated 3D block positions into a SCuLPTER program.
-
-- Each instruction is one code block. The operation tile sits on the raised
-  left end of the block and the parameter tiles are attached after it, so
-  program flow runs from the operation tile, past its parameters, and on into
-  the next connected block.
-- Consecutive blocks are one block pitch apart (BLOCK_PITCH_MM).
-- A structural loop is a physical cycle of blocks closed with a T connector.
-  SCuLPTER cannot write that loop, so it is emitted as a trailing `JMP -n`
-  back to the block the loop re-enters.
-
-Reading direction is not observable from the operation tiles alone, so every
-plausible orientation of the chain is tried and the one under which the
-parameter tiles fall right after their operation tile wins.
-"""
 import argparse
 import itertools
 import json
@@ -20,69 +5,74 @@ import os
 
 import numpy as np
 
-BLOCK_PITCH_MM = 60.0      # centre-to-centre distance between connected blocks -- measure on the real ones
-PITCH_TOLERANCE_MM = 15.0
-PARAM_MIN_T_MM = 5.0       # a parameter tile is never on top of the operation tile
-PARAM_PERP_MM = 25.0       # how far off the block axis a tile may sit (side faces of a vertical build)
-PARAM_ATTACH_MM = 45.0     # last resort: nearest block, only if closer than this
-MAX_CANDIDATE_ORDERS = 16
+import clasificador_simbolos as clasif
 
-RUTA_TABLA_SIMBOLOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simbolos.json")
+PASO_MM = 60.0
+TOLERANCIA_MM = 15.0
+PARAM_MIN_MM = 5.0
+PARAM_PERP_MM = 25.0
+PARAM_CERCA_MM = 45.0
+MAX_ORDENES = 16
+
+TABLA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simbolos.json")
 
 
-def load_symbol_types() -> dict[str, str]:
-    """lexeme -> 'operacion' | 'pila' | 'literal', from simbolos.json."""
-    if not os.path.isfile(RUTA_TABLA_SIMBOLOS):
+def tipos() -> dict[str, str]:
+    if not os.path.isfile(TABLA):
         return {}
-    with open(RUTA_TABLA_SIMBOLOS, encoding="utf-8") as f:
+    with open(TABLA, encoding="utf-8") as f:
         tabla = json.load(f)
     return {entrada["lexema"]: entrada["tipo"] for entrada in tabla.get("simbolos", [])}
 
 
-_SYMBOL_TYPES = load_symbol_types()
+_TIPOS = tipos()
 
 
-def symbol_type(lexeme: str) -> str:
-    tipo = _SYMBOL_TYPES.get(lexeme)
+def tipo_de(lexema: str) -> str:
+    if clasif.ilegible(lexema):
+        return "desconocido"
+    tipo = _TIPOS.get(lexema)
     if tipo:
         return tipo
     try:
-        float(lexeme)
+        float(lexema)
         return "literal"
     except ValueError:
         pass
-    return "operacion" if lexeme == "?" or lexeme.isupper() else "pila"
+    return "operacion" if lexema == "?" or lexema.isupper() else "pila"
 
 
-def split_points(points):
-    ops = [(lexeme, np.asarray(xyz, dtype=float)) for lexeme, xyz in points if symbol_type(lexeme) == "operacion"]
-    params = [(lexeme, np.asarray(xyz, dtype=float)) for lexeme, xyz in points if symbol_type(lexeme) != "operacion"]
-    return ops, params
+def separar(puntos):
+    ops, params, sueltas = [], [], []
+    for lexema, xyz in puntos:
+        entrada = (lexema, np.asarray(xyz, dtype=float))
+        tipo = tipo_de(lexema)
+        if tipo == "desconocido":
+            sueltas.append(entrada)
+        elif tipo == "operacion":
+            ops.append(entrada)
+        else:
+            params.append(entrada)
+    return ops, params, sueltas
 
 
-def build_candidate_graph(ops):
+def grafo(ops):
     graph = {i: [] for i in range(len(ops))}
     for i, j in itertools.combinations(range(len(ops)), 2):
         dist = np.linalg.norm(ops[i][1] - ops[j][1])
-        if abs(dist - BLOCK_PITCH_MM) <= PITCH_TOLERANCE_MM:
+        if abs(dist - PASO_MM) <= TOLERANCIA_MM:
             graph[i].append(j)
             graph[j].append(i)
     return graph
 
 
-def enumerate_orders(graph):
-    """Every walk through the block graph, as (order, loop_target) pairs.
-
-    `loop_target` is the position in `order` that the last block connects
-    back to, or None for a linear chain. Linear chains are also offered
-    reversed, since nothing in the graph says which loose end is the start.
-    """
-    endpoints = [i for i, neighbors in graph.items() if len(neighbors) == 1]
-    start = endpoints[0] if endpoints else 0
+def recorridos(graph):
+    extremos = [i for i, vecinos in graph.items() if len(vecinos) == 1]
+    start = extremos[0] if extremos else 0
     results = []
 
     def walk(order, visited):
-        if len(results) >= MAX_CANDIDATE_ORDERS:
+        if len(results) >= MAX_ORDENES:
             return
         current = order[-1]
         unvisited = [n for n in graph[current] if n not in visited]
@@ -99,15 +89,14 @@ def enumerate_orders(graph):
     return results
 
 
-def _block_axes(ops, order, loop_target):
-    """Unit flow direction and length of each block in `order` (None if unknown)."""
+def _block_axes(ops, order, destino):
     axes = []
     for pos, i in enumerate(order):
         here = ops[i][1]
         if pos + 1 < len(order):
             there = ops[order[pos + 1]][1]
-        elif loop_target is not None:
-            there = ops[order[loop_target]][1]
+        elif destino is not None:
+            there = ops[order[destino]][1]
         elif pos > 0:
             there = here + (here - ops[order[pos - 1]][1])
         else:
@@ -119,21 +108,14 @@ def _block_axes(ops, order, loop_target):
     return axes
 
 
-def assign_parameters(ops, order, loop_target, params):
-    """Attaches parameter tiles to blocks under one orientation.
-
-    Returns (groups, score, unattached). `groups[i]` lists (offset, lexeme,
-    point) for op i, ordered along the flow. Lower score is better: fewer
-    unattached tiles, fewer tiles that only matched by proximity, and tiles
-    closer to their operation tile.
-    """
-    axes = _block_axes(ops, order, loop_target)
-    groups = [[] for _ in ops]
-    unattached = []
+def repartir(ops, order, destino, params):
+    axes = _block_axes(ops, order, destino)
+    grupos = [[] for _ in ops]
+    sueltos = []
     fallbacks = 0
     total_offset = 0.0
 
-    for lexeme, point in params:
+    for lexema, point in params:
         best = None
         for pos, i in enumerate(order):
             axis, length = axes[pos]
@@ -142,118 +124,126 @@ def assign_parameters(ops, order, loop_target, params):
             rel = point - ops[i][1]
             t = float(np.dot(rel, axis))
             perp = float(np.linalg.norm(rel - t * axis))
-            if PARAM_MIN_T_MM <= t < length and perp <= PARAM_PERP_MM and (best is None or t < best[0]):
+            if PARAM_MIN_MM <= t < length and perp <= PARAM_PERP_MM and (best is None or t < best[0]):
                 best = (t, i)
 
         if best is None and ops:
             dists = [np.linalg.norm(point - op_point) for _, op_point in ops]
             nearest = int(np.argmin(dists))
-            if dists[nearest] <= PARAM_ATTACH_MM:
+            if dists[nearest] <= PARAM_CERCA_MM:
                 best = (float(dists[nearest]), nearest)
                 fallbacks += 1
 
         if best is None:
-            unattached.append(lexeme)
+            sueltos.append((lexema, point))
             continue
-        groups[best[1]].append((best[0], lexeme, point))
+        grupos[best[1]].append((best[0], lexema, point))
         total_offset += best[0]
 
-    groups = [sorted(group, key=lambda g: g[0]) for group in groups]
-    return groups, (len(unattached), fallbacks, total_offset), unattached
+    grupos = [sorted(group, key=lambda g: g[0]) for group in grupos]
+    return grupos, (len(sueltos), fallbacks, total_offset), sueltos
 
 
-def build_instructions(points):
-    """(lexeme, xyz) points -> (instructions, warnings).
-
-    Each instruction is a dict with `token`, `operandos`, and where it sits:
-    `posicion` (mm) of the operation tile, `direccion` (unit vector of the
-    flow along the block) and `posiciones_operandos`. The `JMP` that closes a
-    physical loop has no block of its own, so it carries `posicion: None`
-    and `virtual: True`; `destino` is the index it jumps back to.
-    """
-    ops, params = split_points(points)
+def instrucciones(puntos):
+    ops, params, sueltas = separar(puntos)
+    for entrada in sueltas:
+        cerca = any(np.linalg.norm(entrada[1] - p) <= PARAM_CERCA_MM for _, p in ops)
+        (params if cerca else ops).append(entrada)
     if not ops:
-        return [], [f"{lexeme}: parameter tile with no operation block to attach to" for lexeme, _ in params]
+        return [], [f"{lexema}: parameter tile with no operation block to attach to" for lexema, _ in params]
 
-    graph = build_candidate_graph(ops)
-    warnings = [
-        f"{ops[i][0]}: {len(neighbors)} candidate neighbors -- ambiguous, chain order may be wrong"
-        for i, neighbors in graph.items() if len(neighbors) > 3
+    graph = grafo(ops)
+    avisos = [
+        f"{ops[i][0]}: {len(vecinos)} candidate vecinos -- ambiguous, chain order may be wrong"
+        for i, vecinos in graph.items() if len(vecinos) > 3
     ]
 
     candidates = []
-    for order, loop_target in enumerate_orders(graph):
-        groups, score, unattached = assign_parameters(ops, order, loop_target, params)
-        candidates.append((score, order, loop_target, groups, unattached))
+    for order, destino in recorridos(graph):
+        grupos, score, sueltos = repartir(ops, order, destino, params)
+        candidates.append((score, order, destino, grupos, sueltos))
     candidates.sort(key=lambda c: c[0])
-    score, order, loop_target, groups, unattached = candidates[0]
+    score, order, destino, grupos, sueltos = candidates[0]
 
     if len(candidates) > 1 and candidates[1][0] == score and candidates[1][1] != order:
-        warnings.append(
+        avisos.append(
             "reading direction unconfirmed -- no parameter tile distinguishes the orientations"
             if not params else
             "reading direction ambiguous -- parameter tiles fit more than one orientation equally well"
         )
-    warnings.extend(f"{lexeme}: too far from every block -- not attached" for lexeme in unattached)
-    warnings.extend(
+    avisos.extend(f"{lexema}: too far from every block -- not attached" for lexema, _ in sueltos)
+    avisos.extend(
         f"{ops[i][0]}: not reachable from the main chain -- isolated or disconnected"
         for i in sorted(set(range(len(ops))) - set(order))
     )
 
-    axes = _block_axes(ops, order, loop_target)
-    instructions = []
+    axes = _block_axes(ops, order, destino)
+    instrs = []
     for pos, i in enumerate(order):
         axis, _ = axes[pos]
-        instructions.append({
+        instrs.append({
             "token": ops[i][0],
-            "operandos": [lexeme for _, lexeme, _ in groups[i]],
+            "operandos": [lexema for _, lexema, _ in grupos[i]],
             "posicion": ops[i][1].tolist(),
             "direccion": axis.tolist() if axis is not None else None,
-            "posiciones_operandos": [point.tolist() for _, _, point in groups[i]],
+            "posiciones_operandos": [point.tolist() for _, _, point in grupos[i]],
             "virtual": False,
+            "pendiente": clasif.ilegible(ops[i][0]) or any(
+                clasif.ilegible(lexema) for _, lexema, _ in grupos[i]
+            ),
         })
-    if loop_target is not None:
-        # JMP at position len(instructions) must land on position loop_target:
-        # the interpreter does pc = pc + offset, so offset = target - position.
-        instructions.append({
+    if destino is not None:
+
+
+        instrs.append({
             "token": "JMP",
-            "operandos": [str(loop_target - len(instructions))],
+            "operandos": [str(destino - len(instrs))],
             "posicion": None,
             "direccion": None,
             "posiciones_operandos": [],
             "virtual": True,
-            "destino": loop_target,
+            "pendiente": False,
+            "destino": destino,
         })
-    return instructions, warnings
+    return instrs, avisos
 
 
-def build_program(points):
-    """(lexeme, xyz) points -> (SCuLPTER source lines, warnings)."""
-    instructions, warnings = build_instructions(points)
-    return [" ".join([i["token"], *i["operandos"]]) for i in instructions], warnings
+def pendientes(instrs) -> list[str]:
+    pendientes = []
+    for numero, instruccion in enumerate(instrs, start=1):
+        if clasif.ilegible(instruccion["token"]):
+            pendientes.append(f"instrucción {numero}: la operación está sin leer")
+        for posicion, operando in enumerate(instruccion["operandos"], start=1):
+            if clasif.ilegible(operando):
+                pendientes.append(f"instrucción {numero}: el parámetro {posicion} está sin leer")
+    return pendientes
 
 
-def build_chain(points):
-    """Backwards-compatible view: just the operation lexemes in order."""
-    lines, warnings = build_program(points)
-    return [line.split()[0] for line in lines], warnings
+def programa(puntos):
+    instrs, avisos = instrucciones(puntos)
+    return [" ".join([i["token"], *i["operandos"]]) for i in instrs], avisos
 
 
-def load_points(path: str):
+def cadena(puntos):
+    lineas, avisos = programa(puntos)
+    return [line.split()[0] for line in lineas], avisos
+
+
+def puntos(path: str):
     with open(path) as f:
         data = json.load(f)
-    return [(item["lexeme"], np.array([item["x"], item["y"], item["z"]])) for item in data]
+    return [(item["lexema"], np.array([item["x"], item["y"], item["z"]])) for item in data]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a SCuLPTER program from triangulated 3D points (testing helper)")
-    parser.add_argument("--points", required=True, help="JSON file: list of {lexeme, x, y, z}")
+    parser = argparse.ArgumentParser(description="Build a SCuLPTER program from triangulated 3D puntos (testing helper)")
+    parser.add_argument("--puntos", required=True, help="JSON file: list of {lexema, x, y, z}")
     args = parser.parse_args()
 
-    lines, warnings = build_program(load_points(args.points))
+    lineas, avisos = programa(puntos(args.puntos))
 
-    print("\n".join(lines) if lines else "(no points)")
-    for warning in warnings:
+    print("\n".join(lineas) if lineas else "(no puntos)")
+    for warning in avisos:
         print(f"  ! {warning}")
 
 

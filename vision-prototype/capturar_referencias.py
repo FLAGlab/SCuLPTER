@@ -9,7 +9,7 @@ foto), muestra la cámara en vivo y, para cada uno:
   q        termina
 
 El recorte se guarda en escala de grises como referencias/<archivo>.jpg, que
-es lo que carga clasificador_simbolos.py. Ejemplo:
+es lo que carga clasif.py. Ejemplo:
 
   python3 vision-prototype/capturar_referencias.py --camara 1
   python3 vision-prototype/capturar_referencias.py --camara 1 --todos
@@ -23,23 +23,23 @@ import sys
 import cv2
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-CARPETA_REFERENCIAS = os.path.join(AQUI, "referencias")
-RUTA_TABLA_SIMBOLOS = os.path.join(AQUI, "simbolos.json")
+REFERENCIAS = os.path.join(AQUI, "referencias")
+TABLA = os.path.join(AQUI, "simbolos.json")
 MARGEN_PX = 4
 VENTANA = "capturar referencias"
 
 
 def cargar_simbolos() -> list[dict]:
-    with open(RUTA_TABLA_SIMBOLOS, encoding="utf-8") as f:
+    with open(TABLA, encoding="utf-8") as f:
         return json.load(f)["simbolos"]
 
 
 def ruta_referencia(archivo: str) -> str:
-    return os.path.join(CARPETA_REFERENCIAS, f"{archivo}.jpg")
+    return os.path.join(REFERENCIAS, f"{archivo}.jpg")
 
 
 def tiene_foto(archivo: str) -> bool:
-    return any(os.path.isfile(os.path.join(CARPETA_REFERENCIAS, f"{archivo}{ext}")) for ext in (".jpg", ".jpeg", ".png"))
+    return any(os.path.isfile(os.path.join(REFERENCIAS, f"{archivo}{ext}")) for ext in (".jpg", ".jpeg", ".png"))
 
 
 def resolver_fuente(valor: str):
@@ -55,7 +55,6 @@ def etiqueta(simbolo: dict) -> str:
 
 
 def seleccionar_recorte(cuadro):
-    """Devuelve el recorte elegido con el ratón, o None si se cancela."""
     x, y, w, h = cv2.selectROI(VENTANA, cuadro, showCrosshair=False, fromCenter=False)
     if w == 0 or h == 0:
         return None
@@ -66,7 +65,6 @@ def seleccionar_recorte(cuadro):
 
 
 def capturar(captura, simbolo: dict) -> str:
-    """Muestra la cámara hasta que se guarde el símbolo. Devuelve 'guardado', 'saltado' o 'salir'."""
     texto = f"{etiqueta(simbolo)}  --  ESPACIO congelar | s saltar | q salir"
     while True:
         ok, cuadro = captura.read()
@@ -107,7 +105,7 @@ def principal() -> None:
     if not simbolos:
         sys.exit("nada que capturar: todos los símbolos de simbolos.json ya tienen foto (usa --todos para reemplazar)")
 
-    os.makedirs(CARPETA_REFERENCIAS, exist_ok=True)
+    os.makedirs(REFERENCIAS, exist_ok=True)
     captura = cv2.VideoCapture(resolver_fuente(args.camara))
     if not captura.isOpened():
         sys.exit(f"no se pudo abrir la cámara: {args.camara}")

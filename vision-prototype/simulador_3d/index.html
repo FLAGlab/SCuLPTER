@@ -9,10 +9,39 @@
   #paleta { background: #1a1a1a; padding: 12px; overflow-y: auto; }
   #paleta h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin: 18px 0 8px; }
   #paleta h2:first-child { margin-top: 0; }
-  .pieza-paleta { background: #2a6f6a; color: #fff; padding: 10px 12px; margin-bottom: 8px; border-radius: 6px; cursor: grab; text-align: center; font-weight: 600; user-select: none; }
+  .pieza-paleta { background: #242d2c; color: #fff; padding: 7px 10px; margin-bottom: 8px; border-radius: 6px; cursor: grab; display: flex; align-items: center; gap: 12px; font-weight: 600; user-select: none; }
   .pieza-paleta:active { cursor: grabbing; }
+  .pieza-paleta img { width: 48px; height: 48px; object-fit: contain; pointer-events: none; }
   #escena { position: relative; }
-  #escena canvas { display: block; }
+  #escena canvas { display: block; touch-action: none; }
+  button, input, select { font: inherit; }
+  button { cursor: pointer; }
+  .accion { background: #2a6f6a; border: 1px solid #55948e; color: white; border-radius: 6px; padding: 8px 12px; }
+  .secundaria { background: #333; border-color: #555; }
+  #ayuda { position: absolute; left: 14px; right: 14px; bottom: 12px; color: #bbb; font-size: 12px; pointer-events: none; }
+  #aviso { position: absolute; top: 14px; left: 14px; right: 14px; color: #d9f1ed; background: #18332fe6; padding: 9px; border-radius: 6px; font-size: 13px; pointer-events: none; }
+  #resultado.pendiente { border-left: 4px solid #dcad57; }
+  .seleccionada { outline: 1px solid #75bcb0; }
+  .linea-programa { flex-wrap: wrap; }
+  .linea-programa .encaje { width: auto; height: auto; padding: 5px; font-size: 11px; }
+  .encajes { width: 100%; display: flex; gap: 5px; }
+  #seleccion { font-size: 13px; line-height: 1.5; }
+  #seleccion button { margin: 6px 5px 0 0; }
+  #paleta > .accion { width: 100%; margin-bottom: 10px; }
+  #paleta select { width: 100%; margin: 6px 0 12px; background: #333; color: #eee; border: 1px solid #555; padding: 6px; }
+  #paleta label { font-size: 12px; color: #bbb; }
+  #alias { font-size: 12px; color: #bbb; white-space: pre-wrap; }
+  dialog { background: #222; color: #eee; border: 1px solid #526862; border-radius: 12px; width: 380px; max-width: 85vw; max-height: 90vh; overflow: auto; }
+  dialog::backdrop { background: #0009; }
+  dialog form { display: grid; gap: 12px; }
+  dialog h2 { margin: 0; font-size: 20px; }
+  dialog label { display: grid; gap: 5px; }
+  dialog input, dialog select { background: #333; color: white; border: 1px solid #666; padding: 9px; border-radius: 5px; min-width: 0; }
+  dialog p { color: #bbb; font-size: 13px; margin: 0; }
+  #dibujo { display: block; margin: 0 auto 8px; width: 220px; height: 220px; background: #e2eee8; border-radius: 6px; touch-action: none; cursor: crosshair; }
+  #error-parametro { color: #ffad8a; }
+  .acciones-dialogo { display: flex; justify-content: flex-end; gap: 8px; }
+
   #panel { background: #1a1a1a; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
   #panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin: 0 0 8px; }
   #lista-programa { display: flex; flex-direction: column; gap: 6px; }
@@ -34,38 +63,44 @@
 <body>
 <div id="app">
   <div id="paleta">
+    <button class="accion" id="nuevo-parametro">+ Parámetro libre</button>
+    <button class="accion secundaria" id="encuadrar">Ver toda la mesa</button>
     <h2>Binarias</h2>
-    <div class="pieza-paleta" draggable="true" data-token="PUSH">PUSH</div>
-    <div class="pieza-paleta" draggable="true" data-token="MOV">MOV</div>
+    <div class="pieza-paleta" draggable="true" data-token="PUSH"><img src="./operaciones/push.png" alt="" draggable="false" />PUSH</div>
+    <div class="pieza-paleta" draggable="true" data-token="MOV"><img src="./operaciones/move.png" alt="" draggable="false" />MOV</div>
     <h2>Unarias / mixtas</h2>
-    <div class="pieza-paleta" draggable="true" data-token="POP">POP</div>
-    <div class="pieza-paleta" draggable="true" data-token="DUP">DUP</div>
-    <div class="pieza-paleta" draggable="true" data-token="NEG">NEG</div>
-    <div class="pieza-paleta" draggable="true" data-token="?">? (QUESTION)</div>
-    <div class="pieza-paleta" draggable="true" data-token="JMP">JMP</div>
-    <div class="pieza-paleta" draggable="true" data-token="CMP">CMP</div>
+    <div class="pieza-paleta" draggable="true" data-token="POP"><img src="./operaciones/pop.png" alt="" draggable="false" />POP</div>
+    <div class="pieza-paleta" draggable="true" data-token="DUP"><img src="./operaciones/copy.png" alt="" draggable="false" />DUP</div>
+    <div class="pieza-paleta" draggable="true" data-token="NEG"><img src="./operaciones/neg.png" alt="" draggable="false" />NEG</div>
+    <div class="pieza-paleta" draggable="true" data-token="?"><img src="./operaciones/question.png" alt="" draggable="false" />? (QUESTION)</div>
+    <div class="pieza-paleta" draggable="true" data-token="JMP"><img src="./operaciones/jump.png" alt="" draggable="false" />JMP</div>
+    <div class="pieza-paleta" draggable="true" data-token="CMP"><img src="./operaciones/compare.png" alt="" draggable="false" />CMP</div>
     <h2>Aritméticas</h2>
-    <div class="pieza-paleta" draggable="true" data-token="ADD">ADD</div>
-    <div class="pieza-paleta" draggable="true" data-token="SUB">SUB</div>
-    <div class="pieza-paleta" draggable="true" data-token="MUL">MUL</div>
-    <div class="pieza-paleta" draggable="true" data-token="DIV">DIV</div>
-    <div class="pieza-paleta" draggable="true" data-token="MOD">MOD</div>
+    <label for="capacidad-mixtas">Tamaño de bloque</label>
+    <select id="capacidad-mixtas"><option value="1">1 parámetro</option><option value="2">2 parámetros</option></select>
+    <div class="pieza-paleta" draggable="true" data-token="ADD"><img src="./operaciones/sum.png" alt="" draggable="false" />ADD</div>
+    <div class="pieza-paleta" draggable="true" data-token="SUB"><img src="./operaciones/subs.png" alt="" draggable="false" />SUB</div>
+    <div class="pieza-paleta" draggable="true" data-token="MUL"><img src="./operaciones/mult.png" alt="" draggable="false" />MUL</div>
+    <div class="pieza-paleta" draggable="true" data-token="DIV"><img src="./operaciones/div.png" alt="" draggable="false" />DIV</div>
+    <div class="pieza-paleta" draggable="true" data-token="MOD"><img src="./operaciones/modulo.png" alt="" draggable="false" />MOD</div>
   </div>
-  <div id="escena"></div>
+  <div id="escena"><div id="aviso" role="status">Elige una operación para empezar.</div><div id="ayuda">Arrastra una ficha hasta un encaje iluminado. Doble clic para editar un parámetro.<br>Arrastra el fondo para girar · Rueda para acercar · Esc para cancelar un arrastre.</div></div>
   <div id="panel">
     <div id="estado-camara" class="desconectado">Cámara: desconectada, reintentando...</div>
     <label id="interruptor-camara">
       <input type="checkbox" id="camara-activa" />
       Dejar que la cámara reemplace el programa
     </label>
+    <div id="seleccion"></div>
     <div>
       <h2>Programa construido</h2>
       <div id="lista-programa"></div>
-      <div id="vacio">Arrastra una pieza a la mesa para empezar</div>
+      <div id="vacio">Elige una operación y encaja sus parámetros.</div>
     </div>
     <div>
       <h2>Texto SCuLPT reconstruido</h2>
       <div id="codigo-generado"></div>
+      <div id="alias"></div>
     </div>
     <div>
       <h2>Intérprete real</h2>
@@ -73,6 +108,17 @@
     </div>
   </div>
 </div>
+<dialog id="editor-parametro">
+  <form id="form-parametro">
+    <h2>Parámetro</h2>
+    <label>Contenido<select id="tipo-parametro"><option value="etiqueta">Etiqueta de pila: texto, símbolo o dibujo</option><option value="numero">Valor numérico</option><option value="nil">Valor vacío (nil)</option></select></label>
+    <label><span id="nombre-campo">Etiqueta o nombre del dibujo</span><input id="texto-parametro" autocomplete="off" placeholder="a, ★, círculo, mi dibujo…" required /></label>
+    <p id="ayuda-identidad">Usa el mismo nombre para las fichas de una misma pila. Puedes escribir cualquier símbolo o dibujarlo abajo.</p>
+    <div id="zona-dibujo"><canvas id="dibujo" width="512" height="512" aria-label="Dibujo libre del parámetro"></canvas><button type="button" id="limpiar-dibujo" class="accion secundaria">Borrar dibujo</button></div>
+    <p id="error-parametro" role="alert"></p>
+    <div class="acciones-dialogo"><button type="button" id="cancelar-parametro" class="accion secundaria">Cancelar</button><button type="submit" class="accion">Guardar ficha</button></div>
+  </form>
+</dialog>
 <script type="importmap">
 {
   "imports": {

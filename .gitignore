@@ -36,3 +36,9 @@ CLAUDE.md
 *.fdb_latexmk
 *.synctex.gz
 *.synctex(busy)
+
+vision-prototype/**/*.md
+vision-prototype/tests/
+vision-prototype/test_points/
+*.test.mjs
+*.test.js

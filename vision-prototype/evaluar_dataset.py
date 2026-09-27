@@ -25,7 +25,6 @@ import reconstruir
 
 
 def normalizar_programa(texto: str) -> list[str]:
-    """'PUSH heart 3; PUSH  heart 10' -> ['PUSH heart 3', 'PUSH heart 10']."""
     lineas = texto.replace(";", "\n").splitlines()
     return [" ".join(linea.split()) for linea in lineas if linea.strip()]
 
@@ -55,8 +54,8 @@ def evaluar_imagen(ruta_imagen: str, esperado: str) -> dict:
     if cuadro is None:
         return {"error": f"no se pudo leer {ruta_imagen}"}
 
-    detecciones, avisos = reconstruir.detectar_en_cuadro(cuadro)
-    reconstruido = normalizar_programa(reconstruir.reconstruir_programa(detecciones))
+    detecciones, avisos = reconstruir.detectar(cuadro)
+    reconstruido = normalizar_programa(reconstruir.programa(detecciones))
     esperado_lineas = normalizar_programa(esperado)
 
     conteo_esperado = tokens_de(esperado_lineas)
@@ -106,8 +105,8 @@ def evaluar(filas: list[dict], carpeta: str) -> dict:
         lineas_acertadas += resultado["lineas_acertadas"]
         lineas_esperadas += resultado["lineas_esperadas"]
 
-        # Un faltante y un sobrante en la misma imagen es, casi seguro, una
-        # confusión: la ficha estaba pero se leyó como otra cosa.
+
+
         faltantes = list(resultado["faltantes"].elements())
         sobrantes = list(resultado["sobrantes"].elements())
         for esperado, leido in zip(faltantes, sobrantes):
@@ -186,9 +185,9 @@ def principal() -> None:
     parser.add_argument("--guardar-regiones", metavar="CARPETA", help="volcar las regiones detectadas (ver reconstruir.py)")
     args = parser.parse_args()
 
-    if not reconstruir.clasificador_simbolos.hay_referencias():
+    if not reconstruir.clasif.hay_referencias():
         sys.exit("referencias/ está vacía: no hay plantillas con qué reconocer")
-    reconstruir.CARPETA_REGIONES = args.guardar_regiones
+    reconstruir.VOLCADO = args.guardar_regiones
 
     filas = leer_manifiesto(args.manifest, args.split, args.writer)
     if not filas:
