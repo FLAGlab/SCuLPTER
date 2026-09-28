@@ -2,9 +2,10 @@ import argparse
 import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qs
 
 from plataforma.estado import Estado
+from plataforma.vocabulario import PROGRAMAS
 
 RAIZ = Path(__file__).resolve().parent
 
@@ -56,6 +57,13 @@ def crear_handler(estado):
                 elif ruta == '/api/simbolos':
                     with estado.vocabulario.lock:
                         self.enviar(estado.vocabulario.listar())
+                elif ruta == '/api/simbolos/ensayo':
+                    nombre = parse_qs(urlparse(self.path).query).get('programa', ['minimo'])[0]
+                    if nombre not in PROGRAMAS:
+                        raise ValueError('Programa desconocido.')
+                    with estado.vocabulario.lock:
+                        self.enviar({'programa': nombre, 'codigo': PROGRAMAS[nombre],
+                                     'disponibles': sorted(PROGRAMAS), **estado.vocabulario.ensayo(PROGRAMAS[nombre])})
                 elif ruta.startswith('/api/foto/'):
                     foto = estado.vocabulario.ruta_foto(ruta.rsplit('/', 1)[-1])
                     self.enviar(foto.read_bytes(), tipo='image/png' if foto.suffix == '.png' else 'image/jpeg')

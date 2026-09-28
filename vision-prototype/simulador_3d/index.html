@@ -12,6 +12,12 @@
   <div id="aviso" role="status">Elige una operación para empezar.</div>
   <div id="ayuda">Arrastra un bloque a la mesa y encaja sus fichas. Prueba <code>PUSH a 5</code> · <code>PUSH a 10</code> · <code>ADD a</code>, que deja <code>a</code> en 15.</div>
   <button class="accion" id="encuadrar">Ver toda la mesa</button>
+  <button class="accion mesa-solo" id="ver-consola" aria-pressed="false" aria-controls="consola">Ver consola</button>
+  <button class="accion" id="ver-sonido" aria-pressed="true">Sonidos</button>
+  <section id="consola" class="mesa-solo" hidden aria-label="Consola del intérprete">
+    <div class="consola-cabecera">Consola<button class="accion" id="limpiar-consola">Limpiar</button></div>
+    <div id="consola-lineas" role="log" aria-live="polite"></div>
+  </section>
   <div id="controles-gravedad"><button class="accion" id="ver-gravedad" aria-pressed="false">Ver con gravedad</button><button class="accion" id="repetir-gravedad" hidden>Repetir caída</button></div>
   <div id="marco-seleccion" hidden>
     <span class="tirador ne"></span><span class="tirador no"></span>
@@ -81,6 +87,13 @@
   <div class="sec mesa-solo">
     <div class="sec-head">Intérprete</div>
     <div id="resultado"></div>
+  </div>
+  <div class="sec mesa-solo" id="sec-seguimiento">
+    <div class="sec-head">Paso a paso<span id="mesa-contador" aria-live="polite"></span></div>
+    <div id="mesa-instruccion" class="fld"></div>
+    <p id="mesa-estado" class="nota" role="status"></p>
+    <div id="mesa-pilas"></div>
+    <button class="accion" id="mesa-ver-ejecucion">Abrir ejecución</button>
   </div>
   <div class="sec mesa-solo">
     <div class="sec-head">Cámara</div>

@@ -163,6 +163,30 @@ def evaluar(filas: list[dict], carpeta: str, vocabulario=None, guardar_regiones=
     }
 
 
+def procedencia_plantillas(vocabulario) -> dict:
+    fotos = sum(v.get("foto", 0) for v in vocabulario.procedencia.values())
+    renders = sum(v.get("render", 0) for v in vocabulario.procedencia.values())
+    mixtos = sorted(k for k, v in vocabulario.procedencia.items() if v.get("foto") and v.get("render"))
+    return {"solo_fotos": vocabulario.solo_fotos, "plantillas_foto": fotos,
+            "plantillas_render": renders, "simbolos_mixtos": mixtos}
+
+
+def avisar_procedencia(procedencia: dict) -> None:
+    if procedencia["solo_fotos"]:
+        print("\nReferencias: solo fotos de fichas reales.")
+        return
+    if not procedencia["plantillas_foto"]:
+        print("\nReferencias: solo renders. Estas cifras NO miden el reconocimiento de fichas reales.")
+    elif procedencia["plantillas_render"]:
+        print(f"\nReferencias mezcladas: {procedencia['plantillas_foto']} de ficha real y "
+              f"{procedencia['plantillas_render']} de render. Estas cifras NO son el rendimiento con fichas reales.")
+        if procedencia["simbolos_mixtos"]:
+            print(f"Símbolos con las dos procedencias: {', '.join(procedencia['simbolos_mixtos'])}")
+        print("Repite con --solo-fotos para medir únicamente con fichas fotografiadas.")
+    else:
+        print("\nReferencias: solo fotos de fichas reales.")
+
+
 def imprimir(informe: dict) -> None:
     print(f"\n{informe['imagenes']} imagen(es) evaluadas")
     for error in informe["errores"]:
@@ -202,9 +226,10 @@ def principal() -> None:
     parser.add_argument("--json", metavar="SALIDA", help="guardar el informe completo como JSON")
     parser.add_argument("--guardar-regiones", metavar="CARPETA", help="volcar las regiones detectadas")
     parser.add_argument("--datos", default=str(RAIZ / "datos_locales"), help="carpeta local con símbolos personalizados usada por el servicio")
+    parser.add_argument("--solo-fotos", action="store_true", help="usar únicamente referencias fotografiadas de fichas reales, descartando los renders")
     args = parser.parse_args()
 
-    vocabulario = Vocabulario(RAIZ, args.datos)
+    vocabulario = Vocabulario(RAIZ, args.datos, solo_fotos=args.solo_fotos)
     if not vocabulario.plantillas:
         sys.exit("No hay plantillas de símbolos para evaluar.")
 
@@ -213,7 +238,9 @@ def principal() -> None:
         sys.exit("el manifiesto no tiene filas (o ninguna pasa los filtros)")
 
     informe = evaluar(filas, os.path.dirname(os.path.abspath(args.manifest)), vocabulario, args.guardar_regiones)
+    informe["referencias"] = procedencia_plantillas(vocabulario)
     imprimir(informe)
+    avisar_procedencia(informe["referencias"])
     if args.json:
         with open(args.json, "w", encoding="utf-8") as archivo:
             json.dump(informe, archivo, ensure_ascii=False, indent=2)

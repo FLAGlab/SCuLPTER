@@ -64,7 +64,10 @@ def situar_en_nube(m, obs, puntos, proyeccion):
     centro = np.array([obs['x'], obs['y']])
     caja = obs['caja']
     radio = np.clip(min(caja[2:])*.2, 2, 10)
-    good = (z > 0) & (np.linalg.norm(uv-centro, axis=1) <= radio)
+    du, dv = uv[:, 0]-centro[0], uv[:, 1]-centro[1]
+    cerca_caja = (np.abs(du) <= radio) & (np.abs(dv) <= radio)
+    good = (z > 0) & cerca_caja
+    good[good] = du[good]*du[good] + dv[good]*dv[good] <= radio*radio
     if np.count_nonzero(good) < 4:
         return None
     profundidades = z[good]

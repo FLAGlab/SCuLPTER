@@ -1,8 +1,11 @@
 import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Ejecucion, mostrarPila } from "./modelo/ejecucion.mjs";
-import { dibujarEjecucion } from "./interfaz/vista-ejecucion.js";
+import { Ejecucion, veredicto, necesitaInterprete, resumenFinal, senalDeCambio } from "./modelo/ejecucion.mjs";
+import { Validador } from "./modelo/validacion.mjs";
+import { dibujarEjecucion, dibujarSeguimiento } from "./interfaz/vista-ejecucion.js";
+import { Consola, lineaPeticion, lineasDeResultado, lineaDeNavegacion, lineaDeVeredicto } from "./modelo/consola.mjs";
+import { Sonidos } from "./interfaz/sonido.mjs";
 import { simbolo, contenidoPila } from "./interfaz/simbolos.js";
 import { posicionPosterior, unir, conexionesValidas, pendientesConexiones, ordenarMontaje } from "./modelo/conexiones.mjs";
 import { separarOperaciones, crearFichaOperacion, crearFichaOperando, prepararBloque, prepararConector, prepararTuerca, prepararCuna, LARGO_CONECTOR, posicionEncaje } from "./escena/piezas.js";
@@ -15,29 +18,32 @@ import { montajeEjemplo } from "./modelo/ejemplos.mjs";
 
 const $ = id => document.getElementById(id);
 const ejecucion = new Ejecucion();
-let pagina = "mesa", origenPrograma = "manual", revision = 0, firmaValidada = null, motor = null, temporizador = null;
+const consola = new Consola();
+const sonidos = new Sonidos();
+let consolaPintada = 0;
+const LIMITE_PASOS = 2000;
+let pagina = "mesa", origenPrograma = "manual", proxima = null, ultimoVeredicto = null, finAnunciado = false;
 let estadoEjecucion = { pendiente: false, mensaje: "Completa el montaje para ejecutar.", origen: "manual" };
-function detenerMotor() { motor?.terminate(); motor = null; clearTimeout(temporizador); }
+const validador = new Validador({
+  crearMotor: () => new Worker(new URL("./interprete-worker.js", import.meta.url), { type: "module" }),
+  alPedir: codigo => consola.escribir(lineaPeticion(codigo, LIMITE_PASOS)),
+  alTerminar: resultado => {
+    ejecucion.cargar(resultado); finAnunciado = false;
+    consola.todas(lineasDeResultado(resultado));
+    estadoEjecucion = { pendiente: false, mensaje: resultado.mensaje || "No se pudo interpretar el programa.", origen: origenPrograma };
+    if (!gravedadActiva) reconstruirEscena();
+    reconstruirPanel();
+  },
+});
 function invalidarEjecucion(mensaje) {
-  detenerMotor(); firmaValidada = null; revision++; ejecucion.limpiar();
+  if (validador.invalidar() || ejecucion.resultado) { ejecucion.limpiar(); finAnunciado = false; }
   estadoEjecucion = { pendiente: false, mensaje, origen: origenPrograma };
 }
 function validarPrograma(codigo) {
   const firma = JSON.stringify([codigo, origenPrograma, montaje.bloques.map(b => b.id)]);
-  if (firma === firmaValidada) return;
-  detenerMotor(); firmaValidada = firma; const solicitud = ++revision;
-  ejecucion.limpiar(); estadoEjecucion = { pendiente: true, mensaje: "", origen: origenPrograma };
-  motor = new Worker(new URL("./interprete-worker.js", import.meta.url), { type: "module" });
-  const finalizar = resultado => {
-    if (solicitud !== revision) return;
-    detenerMotor(); ejecucion.cargar(resultado);
-    estadoEjecucion = { pendiente: false, mensaje: resultado.mensaje || "No se pudo interpretar el programa.", origen: origenPrograma };
-    if (!gravedadActiva) reconstruirEscena(); reconstruirPanel();
-  };
-  motor.onmessage = ({ data }) => { if (data.revision === solicitud) finalizar(data.resultado); };
-  motor.onerror = () => finalizar({ valido: false, etapa: "motor", mensaje: "No se pudo cargar el intérprete. Revisa su compilación y recarga la página." });
-  temporizador = setTimeout(() => finalizar({ valido: false, etapa: "tiempo", mensaje: "La ejecución tardó demasiado y se detuvo. Reduce el programa y vuelve a intentarlo." }), 10000);
-  motor.postMessage({ revision: solicitud, codigo: codigo + "\n" });
+  if (!validador.solicitar(firma, codigo + "\n")) return;
+  ejecucion.limpiar(); finAnunciado = false;
+  estadoEjecucion = { pendiente: true, mensaje: "", origen: origenPrograma };
 }
 function mostrarPaso() {
   reconstruirEscena(); reconstruirPanel();
@@ -62,27 +68,18 @@ function cambiarPagina(destino) {
 $("pagina-mesa").onclick = () => cambiarPagina("mesa");
 $("pagina-ejecucion").onclick = () => cambiarPagina("ejecucion");
 for (const nombre of ["ejemplos", "camaras", "calibracion", "simbolos", "piezas"]) $("pagina-" + nombre).onclick = () => cambiarPagina(nombre);
+const ACCIONES = { reiniciar: "reiniciar", atras: "atrás", siguiente: "siguiente", todo: "ejecutar todo" };
 for (const [id, accion] of [["ej-reiniciar", "reiniciar"], ["ej-atras", "atras"], ["ej-siguiente", "siguiente"], ["ej-todo", "todo"]]) {
-  $(id).onclick = () => { ejecucion[accion](); mostrarPaso(); };
+  $(id).onclick = () => {
+    const antes = ejecucion.cursor;
+    consola.escribir(lineaDeNavegacion(ejecucion[accion](), montaje.programa(), ACCIONES[accion]));
+    if (ejecucion.cursor !== antes && ejecucion.cursor === ejecucion.ultimo && ejecucion.ultimo > 0 && !finAnunciado) {
+      finAnunciado = true; sonidos.reproducir("fin");
+    }
+    mostrarPaso();
+  };
 }
-window.addEventListener("pagehide", detenerMotor);
-let audio = null;
-function sonarEncaje() {
-  try {
-    audio ??= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === "suspended") audio.resume();
-    const t = audio.currentTime;
-    const oscilador = audio.createOscillator(), volumen = audio.createGain();
-    oscilador.type = "triangle";
-    oscilador.frequency.setValueAtTime(620, t);
-    oscilador.frequency.exponentialRampToValueAtTime(1180, t + 0.05);
-    volumen.gain.setValueAtTime(0.0001, t);
-    volumen.gain.exponentialRampToValueAtTime(0.16, t + 0.008);
-    volumen.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
-    oscilador.connect(volumen).connect(audio.destination);
-    oscilador.start(t); oscilador.stop(t + 0.15);
-  } catch { /* sin audio disponible */ }
-}
+window.addEventListener("pagehide", () => validador.detener());
 const contenedor = $("escena"), resultadoEl = $("resultado");
 const escena = new THREE.Scene();
 escena.background = new THREE.Color(0xf5f5f5);
@@ -369,9 +366,9 @@ function nodo(etiqueta, clase = "", texto = "") {
 function filaPrograma(b, i, programa, etiquetas) {
   const instruccion = programa[i];
   const abierta = pagina === "mesa" && b.id === bloqueActivo;
-  const proxima = pagina === "ejecucion" && i === ejecucion.actual?.siguiente;
-  const fila = nodo("div", "layer" + (abierta ? " sel open" : "") + (proxima ? " next" : ""));
-  fila.append(nodo("span", "caret" + (proxima ? " pc" : ""), proxima ? "▶" : abierta ? "\u25be" : "\u203a"), nodo("span", "num", String(i + 1)));
+  const siguiente = proxima === i;
+  const fila = nodo("div", "layer" + (abierta ? " sel open" : "") + (siguiente ? " next" : ""));
+  fila.append(nodo("span", "caret" + (siguiente ? " pc" : ""), siguiente ? "▶" : abierta ? "\u25be" : "\u203a"), nodo("span", "num", String(i + 1)));
   if (!b.virtual) fila.append(nodo("span", `sw ${FAMILIA[instruccion.token] || "una"}`));
   fila.append(nodo("span", "txt", instruccion.token));
   for (const operando of instruccion.operandos) {
@@ -429,7 +426,7 @@ function propiedades(b, i, programa, etiquetas) {
   if (i > 0 && !b.virtual && !montaje.bloques[i - 1].virtual && origenPrograma === "manual") {
     const anterior = montaje.bloques[i - 1];
     if (!conexionesValidas(montaje).some(c => c.origen === anterior.id && c.destino === b.id)) caja.append(boton("Unir al anterior", () => {
-      manual(); unir(montaje, anterior, b); limpiarObservadas(); actualizar(); encuadrar(); sonarEncaje();
+      manual(); unir(montaje, anterior, b); limpiarObservadas(); actualizar(); encuadrar(); sonidos.reproducir("encaje");
     }, "accion primaria"));
   }
 
@@ -459,7 +456,7 @@ function propiedades(b, i, programa, etiquetas) {
   if (!pieza.union) acciones.append(boton("Encajar", () => {
     const destino = encajes.find(e => e.bloqueId === bloqueActivo && montaje.puedeAcoplar(pieza.id, e.bloqueId, e.slot)) || encajes.find(e => montaje.puedeAcoplar(pieza.id, e.bloqueId, e.slot));
     if (!destino) { aviso("No hay un encaje libre compatible con esta ficha."); return; }
-    manual(); montaje.acoplar(pieza.id, destino.bloqueId, destino.slot); delete pieza.observada; sonarEncaje(); actualizar(); aviso("Ficha encajada.");
+    manual(); montaje.acoplar(pieza.id, destino.bloqueId, destino.slot); delete pieza.observada; sonidos.reproducir("encaje"); actualizar(); aviso("Ficha encajada.");
   }, "accion primaria"));
   if (pieza.union) acciones.append(boton("Retirar", () => {
     manual();
@@ -483,6 +480,30 @@ function estado(marca, clase, titulo, detalle) {
 }
 function reconstruirPanel() {
   const programa = montaje.programa(), etiquetas = montaje.etiquetas();
+  const codigo = programa.map(i => [i.token, ...i.operandos].join(" ")).join("\n");
+  $("codigo-generado").textContent = codigo.replaceAll(SIN_LEER, "\u2026") || "(vacío)";
+  $("alias").textContent = [...etiquetas].filter(([id, nombre]) => id !== nombre).map(([id, nombre]) => `${nombre} \u2192 ${id}`).join("\n");
+
+  const hechos = {
+    bloques: codigo ? montaje.bloques.length : 0,
+    pendientes: [...montaje.pendientes(), ...(origenPrograma === "manual" ? pendientesConexiones(montaje) : [])],
+    incertidumbre: origenPrograma === "camara" ? incertidumbreCamara : "",
+    moviendo: !!(arrastre?.movido || nuevoArrastre?.movido),
+    origen: origenPrograma,
+  };
+  if (necesitaInterprete(hechos)) validarPrograma(codigo);
+  else invalidarEjecucion(veredicto(hechos).detalle);
+  const fallo = veredicto({ ...hechos, validando: estadoEjecucion.pendiente, resultado: ejecucion.resultado });
+  const resumen = fallo.clase === "valido" ? resumenFinal(ejecucion.resultado, etiquetas) : "";
+  resultadoEl.replaceChildren(estado(fallo.marca, fallo.color, fallo.titulo,
+    resumen ? "Al terminar, " + resumen + "." : fallo.detalle));
+  proxima = fallo.seguible ? ejecucion.actual?.siguiente ?? null : null;
+  consola.escribir(lineaDeVeredicto(fallo));
+  if (senalDeCambio(ultimoVeredicto, fallo)) sonidos.reproducir("error");
+  ultimoVeredicto = fallo;
+  dibujarSeguimiento(ejecucion, montaje, fallo, etiquetas);
+  dibujarConsola();
+
   const lista = $("lista-programa"); lista.replaceChildren();
   $("vacio").hidden = montaje.bloques.length > 0;
   montaje.bloques.forEach((b, i) => {
@@ -490,35 +511,45 @@ function reconstruirPanel() {
     if (pagina === "mesa" && b.id === bloqueActivo) for (const hija of filasHijas(b, programa[i])) lista.append(hija);
   });
 
-  const codigo = programa.map(i => [i.token, ...i.operandos].join(" ")).join("\n");
-  $("codigo-generado").textContent = codigo.replaceAll(SIN_LEER, "\u2026") || "(vacío)";
-  $("alias").textContent = [...etiquetas].filter(([id, nombre]) => id !== nombre).map(([id, nombre]) => `${nombre} \u2192 ${id}`).join("\n");
-
-  resultadoEl.replaceChildren();
-  const pendientes = [...montaje.pendientes(), ...(origenPrograma === "manual" ? pendientesConexiones(montaje) : [])];
-  if (origenPrograma === 'camara' && incertidumbreCamara) {
-    invalidarEjecucion(incertidumbreCamara);
-    resultadoEl.append(estado('!', 'errc', 'Lectura pendiente de confirmar', incertidumbreCamara));
-  } else if (arrastre?.movido || nuevoArrastre?.movido) resultadoEl.append(estado("!", "", "En construcción", "Hay una ficha en movimiento."));
-  else if (pendientes.length || !codigo) {
-    invalidarEjecucion(pendientes.length ? pendientes.join("\n") : "Añade instrucciones a la mesa.");
-    resultadoEl.append(estado(pendientes.length ? "!" : "○", pendientes.length ? "errc" : "", pendientes.length ? "Montaje incompleto" : "Sin instrucciones", estadoEjecucion.mensaje));
-  } else {
-    validarPrograma(codigo);
-    const resultado = ejecucion.resultado;
-    if (estadoEjecucion.pendiente) resultadoEl.append(estado("○", "", "Validando…", "Preparando la traza del programa."));
-    else if (!resultado?.valido) resultadoEl.append(estado("!", "errc", resultado?.etapa === "runtime" ? "Error de ejecución" : "Programa sin ejecutar", resultado?.mensaje));
-    else if (resultado.etapa === "limite") resultadoEl.append(estado("!", "errc", "Ejecución detenida por límite", resultado.mensaje));
-    else {
-      const finales = resultado.pasos.at(-1) || {};
-      const resumen = Object.entries(finales).map(([id, valores]) => `${etiquetas.get(id) || id} queda en ${mostrarPila(valores)}`).join("\n");
-      resultadoEl.append(estado("✓", "okc", origenPrograma === "camara" ? "Texto válido · uniones por confirmar" : "Programa válido", resumen ? "Al terminar, " + resumen + "." : ""));
-    }
-  }
   if (pagina === "ejecucion") dibujarEjecucion(ejecucion, montaje, estadoEjecucion);
 
   propiedades(montaje.bloque(bloqueActivo), montaje.bloques.findIndex(b => b.id === bloqueActivo), programa, etiquetas);
 }
+function dibujarConsola() {
+  const caja = $("consola-lineas");
+  if ($("consola").hidden || consolaPintada === consola.escritas) return;
+  const nuevas = consola.desde(consolaPintada);
+  consolaPintada = consola.escritas;
+  if (!consola.lineas.length) { caja.replaceChildren(nodo("p", "consola-vacia", "Aquí aparece cada llamada al intérprete y su respuesta.")); return; }
+  caja.querySelector(".consola-vacia")?.remove();
+  for (const linea of nuevas) {
+    const fila = nodo("div", "consola-linea");
+    fila.append(nodo("span", "consola-origen", linea.origen), nodo("span", linea.tono, linea.texto));
+    caja.append(fila);
+  }
+  while (caja.childElementCount > consola.maximo) caja.firstElementChild.remove();
+  caja.scrollTop = caja.scrollHeight;
+}
+$("ver-consola").onclick = () => {
+  const caja = $("consola"); caja.hidden = !caja.hidden;
+  $("ver-consola").setAttribute("aria-pressed", String(!caja.hidden));
+  document.body.classList.toggle("con-consola", !caja.hidden);
+  if (!caja.hidden) { $("consola-lineas").replaceChildren(); consolaPintada = consola.escritas - consola.lineas.length; dibujarConsola(); }
+};
+$("limpiar-consola").onclick = () => {
+  consola.limpiar(); $("consola-lineas").replaceChildren(); consolaPintada = -1; dibujarConsola();
+  aviso("Consola vaciada.");
+};
+$("mesa-ver-ejecucion").onclick = () => cambiarPagina("ejecucion");
+$("ver-sonido").setAttribute("aria-pressed", String(sonidos.activo));
+$("ver-sonido").textContent = sonidos.activo ? "Sonidos" : "Sin sonido";
+$("ver-sonido").onclick = () => {
+  const activo = sonidos.alternar();
+  $("ver-sonido").setAttribute("aria-pressed", String(activo));
+  $("ver-sonido").textContent = activo ? "Sonidos" : "Sin sonido";
+  if (activo) sonidos.reproducir("encaje");
+  aviso(activo ? "Sonidos activados." : "Sonidos silenciados.");
+};
 function actualizar() { reconstruirEscena(); reconstruirPanel(); }
 function posicionSuelta() {
   const b = montaje.bloque(bloqueActivo) || montaje.bloques.find(b => !b.virtual);
@@ -531,7 +562,7 @@ const editor = crearEditor((contenido, destino) => {
     const p = montaje.piezas.get(destino.piezaId); if (!p) return; p.contenido = contenido; seleccionado = p.id;
   } else {
     const p = montaje.agregarParametro(contenido, posicionSuelta()); seleccionado = p.id;
-    if (destino.bloqueId) { montaje.acoplar(p.id, destino.bloqueId, destino.slot); sonarEncaje(); }
+    if (destino.bloqueId) { montaje.acoplar(p.id, destino.bloqueId, destino.slot); sonidos.reproducir("encaje"); }
   }
   actualizar(); aviso("Parámetro listo. Arrástralo para moverlo o cambiarlo de encaje."); encuadrar();
 });
@@ -809,7 +840,7 @@ function terminarArrastre(cancelar = false) {
     if (cancelar) {
       p.posicion = a.original; p.observada = a.observada;
       if (a.union) montaje.acoplar(p.id, a.union.bloqueId, a.union.slot);
-    } else if (a.candidato) { montaje.acoplar(p.id, a.candidato.bloqueId, a.candidato.slot); sonarEncaje(); }
+    } else if (a.candidato) { montaje.acoplar(p.id, a.candidato.bloqueId, a.candidato.slot); sonidos.reproducir("encaje"); }
     else { const pos = mallasPiezas.get(p.id).position.clone(); pos.y = alturaLibre(p); p.posicion = pos.toArray(); }
   }
   arrastre = null; controles.enabled = true;

@@ -5,6 +5,8 @@ import { OPERACIONES } from '../modelo/montaje.mjs';
 import { crearFichaOperando } from '../escena/piezas.js';
 import { EJEMPLOS, montajeEjemplo } from '../modelo/ejemplos.mjs';
 import { puedeAplicarLectura, codigoLectura, esEstadoActual } from '../vision/lectura-fusion.mjs';
+import { veredicto } from '../modelo/ejecucion.mjs';
+import { procedencia } from '../modelo/consola.mjs';
 import { catalogoCamaras } from '../vision/catalogo-camaras.mjs';
 
 const escapar = valor => String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -34,15 +36,15 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       <section data-vista="ejemplos" hidden><div class="frame-label" id="ejemplo-nombre"></div><div class="frame" id="ejemplo-plano"></div><div class="frame-label">Texto SCuLPT</div><pre class="frame code" id="ejemplo-codigo"></pre></section>
       <section data-vista="camaras" hidden><div id="mapa-camaras"></div><p id="camaras-vacio" class="canvas-note">Montaje de referencia. Añade tus cámaras desde el panel derecho para registrar sus posiciones y ver las imágenes reales.</p><div id="camaras-lista"></div></section>
       <section data-vista="calibracion" hidden><div class="frame-label">Captura actual</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
-      <section data-vista="simbolos" hidden><div id="simbolos-lista"></div></section>
+      <section data-vista="simbolos" hidden><div class="frame-label">Preparación del ensayo</div><div class="frame" id="ensayo-vocabulario"></div><div id="simbolos-lista"></div></section>
       <section data-vista="piezas" hidden><div class="frame-label">Piezas que computan</div><div class="frame pieces">${MODELOS.slice(0,4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><div class="frame-label">Piezas de estructura</div><div class="frame pieces">${MODELOS.slice(4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><p class="canvas-note">Las piezas de estructura sostienen la escultura. No cambian el programa.</p><div class="frame-label" id="modelo-titulo"></div><div class="frame" id="modelo-visor" aria-label="Vista 3D de la pieza"></div></section>
     </div>
     <aside id="vistas-propiedades" class="panel">
       <div id="vista-mensaje" role="status" hidden></div>
       <div data-prop="ejemplos" hidden>${seccion('Ejemplo', '<div id="ejemplo-descripcion"></div><p class="nota" id="ejemplo-forma"></p><div class="acciones"><button class="accion" id="ejemplo-mesa">Cargar en mesa</button><button class="accion primaria" id="ejemplo-ejecucion">Ver ejecución</button></div>')}${seccion('Montaje', '<button class="accion" id="ejemplo-gravedad">Ver con gravedad</button><p class="nota">Sujeta un extremo del montaje y levántalo. Cada bloque gira en su conector y se apoya en la mesa al soltarlo.</p><button class="accion" id="ejemplo-restaurar" disabled>Restaurar mi montaje</button>')}</div>
       <div data-prop="camaras" hidden>
-        ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><p class="nota">Actualiza con una lectura completa y estable. Una oclusión o un desacuerdo pausa la ejecución. Una ficha leída tiene posición y símbolo sin contradicción observada: puede proceder de una sola cámara. Los encajes se estiman por geometría.</p>')}
-        ${seccion('Lectura compartida', `<form id="fusion-form">${propiedad('Origen','<select class="fld" name="modo"><option value="fusion">Combinar cámaras</option><option value="individual">Una sola vista</option></select>')}${propiedad('Paso (mm)','<input class="fld" name="paso_mm" type="number" min="20" max="300" step="0.1" required>')}<p class="nota">Mide la distancia entre los centros de las fichas de operación de bloques consecutivos. Todas las cámaras deben estar registradas en Calibración.</p><button class="accion" type="submit">Guardar lectura</button></form><div id="fusion-resumen" class="nota"></div><div id="fusion-piezas"></div><button class="accion" id="fusion-reiniciar">Reiniciar seguimiento</button><p class="nota">Si retiraste piezas, reinicia cuando la mesa esté visible. No se borran piezas por una oclusión.</p>`)}
+        ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><p class="nota">Hay dos señales de estabilidad distintas. Cada cámara dice si <b>su vista</b> lleva 0.8 s quieta; la fusión dice si <b>el programa</b> lleva 0.8 s sin cambiar. La que habilita la ejecución es la del origen principal, marcada en la lista. Una ficha «sin contradicción» tiene posición y símbolo que ninguna cámara desmiente, y eso puede venir de una sola vista: no es corroboración independiente. Sin profundidad no se distingue una ficha tapada de una que nadie miró. Los encajes se estiman por geometría.</p>')}
+        ${seccion('Lectura compartida', `<form id="fusion-form">${propiedad('Origen','<select class="fld" name="modo"><option value="fusion">Combinar cámaras</option><option value="individual">Una sola vista</option></select>')}${propiedad('Paso 1 par. (mm)','<input class="fld" name="paso_mm" type="number" min="20" max="300" step="0.1" required>')}${propiedad('Paso 2 par. (mm)','<input class="fld" name="paso_2_mm" type="number" min="20" max="300" step="0.1" placeholder="opcional">')}<p class="nota">Distancia entre los centros de las fichas de operación de dos bloques consecutivos, medida sobre el montaje armado. Los bloques de uno y dos parámetros dan pasos distintos: mide los dos. Deja el segundo vacío solo si toda la cadena usa el mismo tamaño. No pongas el promedio; consulta MEDIR_PASO.md. Con los dos pasos, la distancia esperada se ata a la operación: PUSH y MOV llevan bloque de dos parámetros, y POP, DUP, NEG, ? y JMP de uno. CMP y las aritméticas admiten uno o dos, así que su unión se informa como sin confirmar en vez de darse por buena. Todas las cámaras deben estar registradas en Calibración.</p><button class="accion" type="submit">Guardar lectura</button></form><div id="fusion-resumen" class="nota"></div><div id="fusion-piezas"></div><button class="accion" id="fusion-reiniciar">Reiniciar seguimiento</button><p class="nota">Si retiraste piezas, reinicia cuando la mesa esté visible. No se borran piezas por una oclusión.</p>`)}
         ${seccion('Lecturas por cámara', '<div id="cam-lecturas-panel"></div><p class="nota">Los puntajes miden similitud, no probabilidad. Una cámara que no ve una ficha no vota en su contra.</p>')}
         ${seccion('Cámara', `<div id="cam-controles"></div><details><summary>Añadir cámara</summary><form id="camara-form">${propiedad('Nombre','<input class="fld" name="nombre" placeholder="Cenital…" maxlength="80" required>')}${propiedad('Dispositivo','<select class="fld" name="tipo"><option value="webcam">Webcam</option><option value="kinect">Kinect v2</option><option value="realsense">RealSense</option></select>')}${propiedad('Índice / serial','<input class="fld" name="fuente" value="0">')}${propiedad('Aporte','<select class="fld" name="rol"><option value="simbolos">Símbolos</option><option value="profundidad">Profundidad</option><option value="ambos">Ambos</option></select>')}<button class="accion primaria" type="submit">Añadir cámara</button></form></details><details><summary>Montajes y controladores</summary><div id="adaptadores"></div><p class="nota">A: RealSense y webcams. B: Kinect v2 y webcams. Kinect de Xbox 360 es v1 y aún no tiene adaptador; identifica el modelo antes de conectarlo.</p></details>`)}
       </div>
@@ -147,29 +149,34 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     ultimaLectura = '';
     if ($('lectura-aplicar').checked && ultimoAviso !== texto) { ultimoAviso = texto; incertidumbre?.(texto); }
   }
-  let motorLectura = null, firmaLectura = '', dictamenLectura = '', errorLectura = false, tiempoLectura;
+  let motorLectura = null, firmaLectura = '', dictamenLectura = null, tiempoLectura;
   function detenerValidacion() { motorLectura?.terminate(); motorLectura = null; clearTimeout(tiempoLectura); }
+  function pintarDictamen(origen, titulo, detalle, color) {
+    $('lectura-estado').innerHTML = `<div class="dictamen"><span class="dictamen-origen">${escapar(origen)}</span>`
+      + `<span><b class="${color}">${escapar(titulo)}</b>${detalle ? `<div class="nota">${escapar(detalle)}</div>` : ''}</span></div>`;
+  }
   function resultadoLectura(principal) {
     const instrucciones = principal?.instrucciones || [];
     const incompleta = !!instrucciones.length && !puedeAplicarLectura({...principal, estable:true});
     if (!puedeAplicarLectura(principal)) {
-      detenerValidacion(); firmaLectura = ''; dictamenLectura = '';
-      $('lectura-estado').className = incompleta ? 'errc' : '';
-      $('lectura-estado').textContent = principal?.avisos?.join(' ') || (incompleta ? 'Lectura incompleta. Revisa las fichas antes de ejecutar.' : principal ? 'Esperando una lectura estable.' : 'Selecciona una cámara para el programa.');
+      detenerValidacion(); firmaLectura = ''; dictamenLectura = null;
+      const motivo = principal?.avisos?.join(' ') || (incompleta ? 'Revisa las fichas antes de ejecutar.' : principal ? 'Esperando que la lectura se mantenga quieta.' : 'Selecciona una cámara para el programa.');
+      pintarDictamen('mesa', incompleta ? 'Lectura incompleta' : 'Lectura no confirmada', motivo, incompleta ? 'errc' : '');
       return;
     }
     const firma = principal.id + codigoLectura(principal);
     if (firma !== firmaLectura) {
-      detenerValidacion(); firmaLectura = firma; dictamenLectura = 'Validando el programa…'; errorLectura = false;
+      detenerValidacion(); firmaLectura = firma; dictamenLectura = null;
       motorLectura = new Worker(new URL('../interprete-worker.js', import.meta.url), {type:'module'});
-      const terminar = (texto, error) => { if (firmaLectura !== firma) return; detenerValidacion(); dictamenLectura = texto; errorLectura = error; };
-      motorLectura.onmessage = ({data}) => { const r = data.resultado; terminar(r.valido ? r.completa ? 'Programa válido. Uniones físicas por confirmar.' : 'Ejecución detenida por límite.' : 'Programa inválido. ' + (r.mensaje || ''), !r.valido || !r.completa); };
-      motorLectura.onerror = () => terminar('No se pudo validar con el intérprete.', true);
-      tiempoLectura = setTimeout(() => terminar('La validación tardó demasiado.', true), 10000);
+      const terminar = resultado => { if (firmaLectura !== firma) return; detenerValidacion(); dictamenLectura = resultado; };
+      motorLectura.onmessage = ({data}) => terminar(data.resultado);
+      motorLectura.onerror = () => terminar({valido:false, etapa:'motor', decide:'sistema', mensaje:'No se pudo cargar el intérprete.'});
+      tiempoLectura = setTimeout(() => terminar({valido:false, etapa:'tiempo', decide:'sistema', mensaje:'La validación tardó demasiado.'}), 10000);
       motorLectura.postMessage({revision:1, codigo:instrucciones.map(i => [i.token,...i.operandos].join(' ')).join('\n')+'\n'});
     }
-    $('lectura-estado').textContent = dictamenLectura;
-    $('lectura-estado').className = errorLectura ? 'errc' : motorLectura ? '' : 'okc';
+    if (!dictamenLectura) { pintarDictamen('mesa', 'Validando…', 'Consultando al intérprete.', ''); return; }
+    const v = veredicto({bloques: instrucciones.length, resultado: dictamenLectura, origen: 'camara'});
+    pintarDictamen(procedencia(dictamenLectura), v.titulo, v.detalle, v.color);
   }
   function pintarCatalogo(camaras) {
     const fichas = catalogoCamaras(camaras);
@@ -193,7 +200,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     for (const c of estado.camaras) {
       const tarjeta = raiz.querySelector(`[data-control="${c.id}"]`);
       const marco = raiz.querySelector(`[data-camara="${c.id}"]`);
-      tarjeta.querySelector('.cam-estado').textContent = `${c.estado}${c.resolucion ? ' · ' + c.resolucion.join(' × ') : ''}${estado.configuracion_fusion?.modo === 'individual' && estado.principal === c.id ? ' · Fuente del programa' : ''}`;
+      tarjeta.querySelector('.cam-estado').textContent = `${c.estado}${c.resolucion ? ' · ' + c.resolucion.join(' × ') : ''}${c.estable ? ' · vista quieta' : ''}${estado.configuracion_fusion?.modo === 'individual' && estado.principal === c.id ? ' · fuente del programa, su señal habilita la ejecución' : ''}`;
       tarjeta.querySelector('.cam-error').textContent = c.error;
       tarjeta.querySelector('[data-accion="iniciar"]').disabled = ['conectada', 'conectando', 'deteniendo'].includes(c.estado);
       tarjeta.querySelector('[data-accion="detener"]').disabled = !['conectada', 'conectando'].includes(c.estado);
@@ -213,14 +220,14 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const firmaConfig = JSON.stringify(config);
     if (firmaConfig !== configuracionFusion) {
       configuracionFusion = firmaConfig;
-      const f = $('fusion-form').elements; f.modo.value = config.modo; f.paso_mm.value = config.paso_mm;
+      const f = $('fusion-form').elements; f.modo.value = config.modo; f.paso_mm.value = config.paso_mm; f.paso_2_mm.value = config.paso_2_mm ?? '';
     }
     const fusion = estado.fusion;
     $('fusion-resumen').textContent = config.modo === 'fusion' ? fusion ? `${fusion.piezas.length} piezas en seguimiento · ${fusion.camaras.length} cámaras sincronizadas${fusion.desfase_ms == null ? '' : ' · separación ' + fusion.desfase_ms + ' ms'}` : 'Esperando el estado compartido.' : 'Lectura de una vista: no combina observaciones ni resuelve oclusiones.';
     const nombres = Object.fromEntries(estado.camaras.map(c => [c.id,c.nombre]));
     const estadosPieza = {confirmada:'Leída',ambigua:'Ambigua',oculta:'Oculta',no_observada:'Sin observación reciente'};
     $('fusion-piezas').hidden = config.modo !== 'fusion';
-    $('fusion-piezas').innerHTML = (fusion?.piezas || []).map(p => `<div class="pieza-observada"><div><span class="mono">${escapar(estado.etiquetas?.[p.lexema] || p.lexema)}</span><span class="${p.estado === 'confirmada' ? '' : 'errc'}">${escapar(estadosPieza[p.estado] || p.estado)}${p.estado === 'confirmada' ? ` · ${p.camaras.length} ${p.camaras.length === 1 ? 'vista' : 'vistas'}` : ''}</span></div><div class="nota">${escapar(p.id)} · ${escapar(p.camaras.map(id => nombres[id] || id).join(', '))}${p.candidatos?.length ? ' · similitud ' + p.candidatos[0].puntaje.toFixed(2) : ''}</div></div>`).join('');
+    $('fusion-piezas').innerHTML = (fusion?.piezas || []).map(p => `<div class="pieza-observada"><div><span class="mono">${escapar(estado.etiquetas?.[p.lexema] || p.lexema)}</span><span class="${p.estado === 'confirmada' ? (p.camaras.length === 1 ? 'avisoc' : '') : 'errc'}">${escapar(estadosPieza[p.estado] || p.estado)}${p.estado === 'confirmada' ? ` · ${p.camaras.length === 1 ? 'una sola vista, sin corroboración independiente' : p.camaras.length + ' vistas que coinciden'}` : ''}</span></div><div class="nota">${escapar(p.id)} · ${escapar(p.camaras.map(id => nombres[id] || id).join(', '))}${p.candidatos?.length ? ' · similitud ' + p.candidatos[0].puntaje.toFixed(2) : ''}</div></div>`).join('');
     const principal = config.modo === 'fusion' ? fusion : estado.camaras.find(c => c.id === estado.principal);
     $('lectura-codigo').hidden = !principal?.instrucciones?.length;
     $('lectura-codigo').textContent = (principal?.instrucciones || []).map(i => [i.token, ...i.operandos.map(v => estado.etiquetas?.[v] || v)].join(' ')).join('\n');
@@ -271,11 +278,45 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       $('lectura-estado').textContent = 'Sin conexión: se conserva el último programa recibido.';
     }
   }
+  function rotuloOrigen(s) {
+    const renders = s.fotos.length - (s.fotografiadas || 0);
+    if (!s.fotos.length) return 'Sin registrar';
+    if (!s.fotografiadas) return renders === 1 ? 'render' : `${renders} renders`;
+    const reales = `${s.fotografiadas} ${s.fotografiadas === 1 ? 'ficha real' : 'fichas reales'}`;
+    return renders ? `${reales} · ${renders} render${renders === 1 ? '' : 's'}` : reales;
+  }
+  async function ensayoVocabulario(nombre) {
+    const caja = $('ensayo-vocabulario');
+    try {
+      const r = await api('simbolos/ensayo?programa=' + encodeURIComponent(nombre || 'minimo'));
+      const grupo = (titulo, items, clase, detalle) => items.length
+        ? `<div class="frame-label">${titulo}</div><div class="ensayo-lista">${items.map(s => `<span class="ensayo-item ${clase}"><span class="mono">${escapar(s.lexema)}</span> ${escapar(s.tipo)}${detalle(s) ? ' · ' + escapar(detalle(s)) : ''}</span>`).join('')}</div>` : '';
+      caja.innerHTML = `<div class="ensayo-cabecera">
+          <select class="fld" id="ensayo-programa">${r.disponibles.map(n => `<option value="${n}" ${n === r.programa ? 'selected' : ''}>${n}</option>`).join('')}</select>
+          <span class="nota">${r.declarados} declarados · ${r.con_plantilla} con plantilla · <b class="${r.desde_ficha ? '' : 'errc'}">${r.desde_ficha} desde ficha real</b></span>
+        </div>
+        <div class="ensayo-cabecera">
+          <span class="nota ${r.plantillas_render ? 'avisoc' : ''}">${r.solo_fotos ? 'El clasificador usa solo fotos de fichas reales.'
+            : !r.plantillas_foto ? 'El clasificador usa solo renders: ninguna medida de acierto describiría fichas reales.'
+            : r.plantillas_render ? `El clasificador mezcla ${r.plantillas_foto} plantilla${r.plantillas_foto === 1 ? '' : 's'} de ficha real con ${r.plantillas_render} de render${r.mixtos.length ? ', y en ' + escapar(r.mixtos.join(', ')) + ' conviven las dos' : ''}. Una tasa de acierto medida así no es el rendimiento con fichas reales.`
+            : 'El clasificador usa solo fotos de fichas reales.'}</span>
+        </div>
+        <pre class="frame code ensayo-codigo">${escapar(r.codigo)}</pre>
+        ${grupo('Listos', r.listos, 'okc', () => '')}
+        ${grupo('Provisionales, no acreditan lectura física', r.provisionales, 'avisoc', s => s.origen)}
+        ${grupo('Falta fotografiar', r.faltan, 'errc', s => s.motivo)}
+        <p class="nota">${r.faltan.length ? 'Captura estas fichas antes del ensayo. Consulta CAPTURA_REFERENCIAS.md.' : 'No falta ningún símbolo para este programa.'}</p>`;
+      $('ensayo-programa').onchange = e => ensayoVocabulario(e.target.value);
+    } catch (error) {
+      caja.innerHTML = `<p class="nota errc">No se pudo consultar la preparación: ${escapar(error.message)}</p>`;
+    }
+  }
   async function simbolos() {
     try {
       const lista = await api('simbolos');
       simbolosDatos = lista;
-      $('simbolos-lista').innerHTML = [['pila','Etiquetas de pila'],['operacion','Operaciones'],['literal','Valores']].map(([tipo,titulo]) => `<div class="frame-label">${titulo}</div><div class="frame ${tipo === 'operacion' ? 'ops-frame' : 'grid-frame'}">${lista.filter(s => s.tipo === tipo).sort((a,b) => tipo === 'operacion' ? ordenOperaciones.indexOf(a.lexema)-ordenOperaciones.indexOf(b.lexema) : 0).map(s => `<button class="${tipo === 'operacion' ? 'ocard ' + familia(s.lexema) : 'scard'}" data-simbolo="${escapar(s.lexema)}">${tipo === 'operacion' ? `<span class="oname">${escapar(s.lexema)}</span>` : `<div class="spad">${s.fotos[0] ? `<img alt="${escapar(s.nombre)}" src="${base}/api/foto/${encodeURIComponent(s.fotos[0])}">` : `<span class="glyph">${escapar(s.nombre)}</span>`}</div><span class="sname mono">${escapar(rotulo(s))}</span>`}<span class="${tipo === 'operacion' ? 'ocap' : 'scap' + (s.fotos.length ? '' : ' errc')}">${s.fotos.length ? s.fotos.length + (s.fotos.length === 1 ? ' foto' : ' fotos') : 'Sin registrar'}</span></button>`).join('')}</div>`).join('');
+      await ensayoVocabulario($('ensayo-programa')?.value);
+      $('simbolos-lista').innerHTML = [['pila','Etiquetas de pila'],['operacion','Operaciones'],['literal','Valores']].map(([tipo,titulo]) => `<div class="frame-label">${titulo}</div><div class="frame ${tipo === 'operacion' ? 'ops-frame' : 'grid-frame'}">${lista.filter(s => s.tipo === tipo).sort((a,b) => tipo === 'operacion' ? ordenOperaciones.indexOf(a.lexema)-ordenOperaciones.indexOf(b.lexema) : 0).map(s => `<button class="${tipo === 'operacion' ? 'ocard ' + familia(s.lexema) : 'scard'}" data-simbolo="${escapar(s.lexema)}">${tipo === 'operacion' ? `<span class="oname">${escapar(s.lexema)}</span>` : `<div class="spad">${s.fotos[0] ? `<img alt="${escapar(s.nombre)}" src="${base}/api/foto/${encodeURIComponent(s.fotos[0])}">` : `<span class="glyph">${escapar(s.nombre)}</span>`}</div><span class="sname mono">${escapar(rotulo(s))}</span>`}<span class="${tipo === 'operacion' ? 'ocap' : 'scap'}${s.fotografiadas ? '' : (s.fotos.length ? ' avisoc' : ' errc')}">${rotuloOrigen(s)}</span></button>`).join('')}</div>`).join('');
       pintarVocabulario();
       seleccionarSimbolo(simboloElegido || lista.find(s => s.tipo === 'pila')?.lexema || lista[0]?.lexema);
 

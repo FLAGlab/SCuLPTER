@@ -9,6 +9,7 @@ import clasificador_simbolos as clasif
 
 PASO_MM = 60.0
 TOLERANCIA_MM = 15.0
+TOLERANCIA_MEDIDA_MM = 8.0
 PARAM_MIN_MM = 5.0
 PARAM_PERP_MM = 25.0
 PARAM_CERCA_MM = 45.0
@@ -56,14 +57,127 @@ def separar(puntos):
     return ops, params, sueltas
 
 
-def grafo(ops, paso_mm=PASO_MM):
+ARIDAD_BLOQUE = {"PUSH": 2, "MOV": 2, "POP": 1, "DUP": 1, "NEG": 1, "?": 1, "JMP": 1,
+                 "CMP": None, "ADD": None, "SUB": None, "MUL": None, "DIV": None, "MOD": None}
+
+
+def pasos_de(token, admisibles):
+    n = ARIDAD_BLOQUE.get(token)
+    if n is None or len(admisibles) < 2:
+        return set(admisibles)
+    return {admisibles[0]} if n == 1 else {admisibles[-1]}
+
+
+def pasos_admisibles(paso_mm):
+    if paso_mm is None:
+        return (PASO_MM,)
+    valores = [paso_mm] if isinstance(paso_mm, (int, float)) else list(paso_mm)
+    limpios = sorted({float(v) for v in valores if v and float(v) > 0})
+    return tuple(limpios) or (PASO_MM,)
+
+
+def margen(admisibles):
+    if admisibles == (PASO_MM,):
+        return TOLERANCIA_MM
+    if len(admisibles) == 1:
+        return admisibles[0] * .2
+    return min(TOLERANCIA_MEDIDA_MM, min(b - a for a, b in zip(admisibles, admisibles[1:])) / 2)
+
+
+def candidatos_par(ops, i, j, admisibles):
+    return pasos_de(ops[i][0], admisibles) | pasos_de(ops[j][0], admisibles)
+
+
+def ciertos_par(ops, i, j, admisibles):
+    return set().union(*(pasos_de(ops[k][0], admisibles) for k in (i, j)
+                         if ARIDAD_BLOQUE.get(ops[k][0]) is not None), set())
+
+
+def grafo(ops, paso_mm=PASO_MM, tolerancia=None):
+    admisibles = pasos_admisibles(paso_mm)
+    tol = margen(admisibles) if tolerancia is None else float(tolerancia)
     graph = {i: [] for i in range(len(ops))}
     for i, j in itertools.combinations(range(len(ops)), 2):
         dist = np.linalg.norm(ops[i][1] - ops[j][1])
-        if abs(dist - paso_mm) <= (TOLERANCIA_MM if paso_mm == PASO_MM else paso_mm * .2):
+        if any(abs(dist - p) <= tol for p in candidatos_par(ops, i, j, admisibles)):
             graph[i].append(j)
             graph[j].append(i)
     return graph
+
+
+def pasos_del_recorrido(ops, orden, destino):
+    tramos = list(zip(orden, orden[1:]))
+    if destino is not None and orden:
+        tramos.append((orden[-1], orden[destino]))
+    return tramos
+
+
+def recorrido_coherente(ops, orden, destino, admisibles, tol):
+    for origen, siguiente in pasos_del_recorrido(ops, orden, destino):
+        dist = np.linalg.norm(ops[origen][1] - ops[siguiente][1])
+        if not any(abs(dist - p) <= tol for p in pasos_de(ops[origen][0], admisibles)):
+            return False
+    return True
+
+
+def recorridos_coherentes(ops, candidatos, paso_mm=PASO_MM, tolerancia=None):
+    admisibles = pasos_admisibles(paso_mm)
+    if len(admisibles) < 2:
+        return list(candidatos)
+    tol = margen(admisibles) if tolerancia is None else float(tolerancia)
+    return [(orden, destino) for orden, destino in candidatos
+            if recorrido_coherente(ops, orden, destino, admisibles, tol)]
+
+
+def tamano_observado(token, parametros):
+    fijo = ARIDAD_BLOQUE.get(token)
+    if fijo is not None:
+        return fijo
+    return parametros if parametros in (1, 2) else None
+
+
+def coherencia_con_parametros(ops, orden, destino, conteos, paso_mm=PASO_MM, tolerancia=None):
+    admisibles = pasos_admisibles(paso_mm)
+    if len(admisibles) < 2:
+        return True, []
+    tol = margen(admisibles) if tolerancia is None else float(tolerancia)
+    ambiguos = []
+    for origen, siguiente in pasos_del_recorrido(ops, orden, destino):
+        dist = np.linalg.norm(ops[origen][1] - ops[siguiente][1])
+        tamano = tamano_observado(ops[origen][0], conteos.get(origen))
+        if tamano is None:
+            if not any(abs(dist - p) <= tol for p in admisibles):
+                return False, ambiguos
+            ambiguos.append((origen, siguiente))
+            continue
+        esperado = admisibles[0] if tamano == 1 else admisibles[-1]
+        if abs(dist - esperado) > tol:
+            return False, ambiguos
+    return True, ambiguos
+
+
+def recorrido_ambiguo(ops, orden, destino, paso_mm=PASO_MM, tolerancia=None):
+    admisibles = pasos_admisibles(paso_mm)
+    if len(admisibles) < 2:
+        return []
+    tol = margen(admisibles) if tolerancia is None else float(tolerancia)
+    return [(origen, siguiente) for origen, siguiente in pasos_del_recorrido(ops, orden, destino)
+            if ARIDAD_BLOQUE.get(ops[origen][0]) is None]
+
+
+def uniones_ambiguas(ops, paso_mm=PASO_MM, tolerancia=None):
+    admisibles = pasos_admisibles(paso_mm)
+    if len(admisibles) < 2:
+        return []
+    tol = margen(admisibles) if tolerancia is None else float(tolerancia)
+    pares = []
+    for i, j in itertools.combinations(range(len(ops)), 2):
+        dist = np.linalg.norm(ops[i][1] - ops[j][1])
+        if not any(abs(dist - p) <= tol for p in candidatos_par(ops, i, j, admisibles)):
+            continue
+        if not any(abs(dist - p) <= tol for p in ciertos_par(ops, i, j, admisibles)):
+            pares.append((i, j))
+    return pares
 
 
 def recorridos(graph):
@@ -158,8 +272,11 @@ def instrucciones(puntos, paso_mm=PASO_MM):
         for i, vecinos in graph.items() if len(vecinos) > 3
     ]
 
+    coherentes = recorridos_coherentes(ops, recorridos(graph), paso_mm)
+    if not coherentes:
+        return [], avisos + ["chain step does not match the block sizes in any reading direction"]
     candidates = []
-    for order, destino in recorridos(graph):
+    for order, destino in coherentes:
         grupos, score, sueltos = repartir(ops, order, destino, params)
         candidates.append((score, order, destino, grupos, sueltos))
     candidates.sort(key=lambda c: c[0])

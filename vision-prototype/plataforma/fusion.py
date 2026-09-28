@@ -5,14 +5,15 @@ import threading
 
 import numpy as np
 
-from adjacency import instrucciones as reconstruir_3d, separar, grafo, recorridos, repartir
+from adjacency import instrucciones as reconstruir_3d, separar, grafo, recorridos, repartir, pasos_admisibles, recorridos_coherentes, coherencia_con_parametros
 from plataforma.geometria_fusion import modelo, triangular, proyectar, nube, situar_en_nube, oculto
 from plataforma.vocabulario import OPERACIONES
 from clasificador_simbolos import aceptar_candidatos
 
 
+SIN_LEER = '<sin leer>'
 ARIDADES = {op: (1, 2) if op in {'CMP', 'ADD', 'SUB', 'MUL', 'DIV', 'MOD'} else (2, 2) if op in {'PUSH', 'MOV'} else (1, 1) for op in OPERACIONES}
-CONFIGURACION = {'modo': 'fusion', 'paso_mm': 60., 'medido': False}
+CONFIGURACION = {'modo': 'fusion', 'paso_mm': 60., 'paso_2_mm': None, 'medido': False}
 
 
 def ganador(candidatos):
@@ -35,17 +36,57 @@ def asociar_unicos(costes, limite, margen):
     return candidatos
 
 
+def puede_ejecutar(resultado):
+    if not resultado or not resultado.get('estable') or not resultado.get('compatible'):
+        return False
+    instrucciones = resultado.get('instrucciones') or []
+    if not instrucciones:
+        return False
+    for i in instrucciones:
+        rango = ARIDADES.get(i.get('token'))
+        operandos = i.get('operandos')
+        if not rango or not isinstance(operandos, list) or SIN_LEER in operandos:
+            return False
+        if not rango[0] <= len(operandos) <= rango[1]:
+            return False
+    return True
+
+
+def pasos_medidos(config):
+    return pasos_admisibles([config.get('paso_mm'), config.get('paso_2_mm')])
+
+
 def reconstruir(piezas, paso):
     puntos = [(p['lexema'], p['posicion']) for p in piezas]
     ops = [p for p in piezas if p['lexema'] in OPERACIONES]
     avisos = []
     if not ops:
         return [], ['Todavía no hay operaciones localizadas.']
-    grados = [sum(abs(np.linalg.norm(np.subtract(p['posicion'], q['posicion']))-paso) <= paso*.2 for q in ops if q['id'] != p['id']) for p in ops]
+    operaciones, parametros, _ = separar(puntos)
+    enlaces = grafo(operaciones, paso)
+    grados = [len(v) for v in enlaces.values()]
     if len(ops) > 1 and (any(g == 0 or g > 2 for g in grados) or grados.count(1) != 2):
         return [], ['El orden de los bloques es ambiguo o hay conjuntos separados. Revisa el paso medido y las conexiones.']
-    operaciones, parametros, _ = separar(puntos)
-    alternativas = sorted((repartir(operaciones, orden, destino, parametros)[1], orden) for orden, destino in recorridos(grafo(operaciones, paso)))
+    todos = recorridos(enlaces)
+    coherentes = recorridos_coherentes(operaciones, todos, paso)
+    if not coherentes:
+        return [], ['Las distancias no encajan con el tamaño de los bloques en ningún sentido de lectura. Revisa los dos pasos medidos y las uniones.']
+    evaluadas = []
+    for orden, destino in coherentes:
+        grupos, puntaje, _ = repartir(operaciones, orden, destino, parametros)
+        encaja, dudosas = coherencia_con_parametros(operaciones, orden, destino,
+                                                    {i: len(grupos[i]) for i in orden}, paso)
+        if encaja:
+            evaluadas.append((puntaje, orden, dudosas))
+    if not evaluadas:
+        return [], ['Las distancias no corresponden a los parámetros observados en ningún sentido de lectura. Revisa los dos pasos medidos, las fichas y las uniones.']
+    evaluadas.sort(key=lambda e: e[0])
+    alternativas = [(puntaje, orden) for puntaje, orden, _ in evaluadas]
+    sin_confirmar = evaluadas[0][2]
+    if len(coherentes) < len(todos):
+        libre = min((repartir(operaciones, orden, destino, parametros)[1], orden) for orden, destino in todos)
+        if libre[1] != alternativas[0][1]:
+            avisos.append('El tamaño de los bloques contradice la disposición de las fichas: en el sentido que sugieren los parámetros, una distancia no corresponde al bloque que iría delante.')
     if len(alternativas) > 1:
         a, b = alternativas[:2]
         if a[1] != b[1] and a[0][:2] == b[0][:2] and abs(a[0][2]-b[0][2]) < 5:
@@ -61,6 +102,9 @@ def reconstruir(piezas, paso):
             if any(d < 5 for d in distancias) or any(np.linalg.norm(v-np.dot(v, eje)*eje) > 8 for v in vectores) or any(b-a < 5 for a, b in zip(distancias, distancias[1:])):
                 avisos.append('Los parámetros no definen una dirección de lectura inequívoca.')
             instrucciones[0]['direccion'] = eje.tolist()
+    if sin_confirmar:
+        avisos.append(f'{len(sin_confirmar)} unión' + ('' if len(sin_confirmar) == 1 else 'es') +
+                      ' sin confirmar: no se observaron parámetros suficientes para saber el tamaño del bloque que va delante.')
     if advertencias:
         avisos.append('No se puede confirmar la dirección, la unión de un parámetro o la continuidad del montaje.')
     if len([i for i in instrucciones if not i['virtual']]) != len(ops) or any(i['virtual'] for i in instrucciones):
@@ -90,7 +134,7 @@ class Fusion:
             self.ultimo_instante = None
             self.vistas_ahora = set()
             self.sin_localizar = 0
-            self.resultado = {'id':'fusion', 'estado':'incompleta', 'estable':False, 'compatible':False, 'instrucciones':[], 'piezas':[], 'avisos':['Esperando observaciones de las cámaras.'], 'sin_localizar':0, 'camaras':[], 'desfase_ms':None, 'firma':'', 'conexiones_confirmadas':False}
+            self.resultado = {'id':'fusion', 'ambito':'programa', 'estado':'incompleta', 'estable':False, 'compatible':False, 'instrucciones':[], 'piezas':[], 'avisos':['Esperando observaciones de las cámaras.'], 'sin_localizar':0, 'camaras':[], 'desfase_ms':None, 'firma':'', 'conexiones_confirmadas':False}
             self.revision += 1
             self.resultado['revision'] = self.revision
 
@@ -103,7 +147,7 @@ class Fusion:
             self.desde = None
             self.revision += 1
             self.resultado['revision'] = self.revision
-            self.resultado.update(estable=False, compatible=False, estado='incompleta', avisos=['No se pudo fusionar esta captura. Revisa la calibración y las imágenes.'])
+            self.resultado.update(ambito='programa', estable=False, compatible=False, estado='incompleta', avisos=['No se pudo fusionar esta captura. Revisa la calibración y las imágenes.'])
 
     def actualizar(self, fuentes, config, ahora):
         with self.lock:
@@ -243,7 +287,7 @@ class Fusion:
             piezas.append({'id': pista['id'], 'lexema': pista['lexema'], 'posicion': pista['posicion'].tolist(), 'estado': estado,
                            'candidatos': pista.get('candidatos', []), 'camaras': sorted(pista['lecturas']), 'metodo': pista.get('metodo'),
                            'edad_ms': max(0, round(edad*1000))})
-        instrucciones, problemas = reconstruir(piezas, config['paso_mm']) if piezas else ([], ['Esperando piezas localizables en las cámaras.'])
+        instrucciones, problemas = reconstruir(piezas, pasos_medidos(config)) if piezas else ([], ['Esperando piezas localizables en las cámaras.'])
         if piezas and any(p['estado'] != 'confirmada' for p in piezas):
             problemas.append('Hay piezas ocultas, ambiguas o sin observación reciente. Se conserva la última lectura como provisional.')
         if pendientes:
@@ -261,7 +305,7 @@ class Fusion:
             self.ancla = posiciones
         estable = bool(instrucciones) and not problemas and self.desde is not None and ahora-self.desde >= .8
         estado = 'estable' if estable else 'incompleta' if problemas else 'estabilizando'
-        contenido = {'id': 'fusion', 'estado': estado, 'estable': estable, 'compatible': not problemas, 'instrucciones': instrucciones,
+        contenido = {'id': 'fusion', 'ambito': 'programa', 'estado': estado, 'estable': estable, 'compatible': not problemas, 'instrucciones': instrucciones,
                      'piezas': piezas, 'avisos': list(dict.fromkeys(problemas)), 'sin_localizar': pendientes,
                      'camaras': [c['id'] for c in cuadros], 'desfase_ms': round((max(c['instante'] for c in cuadros)-min(c['instante'] for c in cuadros))*1000) if cuadros else None,
                      'firma': json.dumps([[(i['token'], i['operandos']) for i in instrucciones], [(id, np.round(p, 1).tolist()) for id, p in self.ancla.items()]], sort_keys=True), 'conexiones_confirmadas': False}

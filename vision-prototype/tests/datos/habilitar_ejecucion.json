@@ -1,0 +1,1199 @@
+{
+ "_doc": "Casos compartidos por puede_ejecutar (Python) y puedeAplicarLectura (JavaScript). El campo esperado se fija a mano desde la tabla de aridades; no lo calcula ninguna de las dos implementaciones.",
+ "aridades": {
+  "?": [
+   1,
+   1
+  ],
+  "ADD": [
+   1,
+   2
+  ],
+  "CMP": [
+   1,
+   2
+  ],
+  "DIV": [
+   1,
+   2
+  ],
+  "DUP": [
+   1,
+   1
+  ],
+  "JMP": [
+   1,
+   1
+  ],
+  "MOD": [
+   1,
+   2
+  ],
+  "MOV": [
+   2,
+   2
+  ],
+  "MUL": [
+   1,
+   2
+  ],
+  "NEG": [
+   1,
+   1
+  ],
+  "POP": [
+   1,
+   1
+  ],
+  "PUSH": [
+   2,
+   2
+  ],
+  "SUB": [
+   1,
+   2
+  ]
+ },
+ "casos": [
+  {
+   "nombre": "? con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "?",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "? con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "?",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "? con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "?",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "? con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "?",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "ADD con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "ADD",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "ADD con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "ADD",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "ADD con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "ADD",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "ADD con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "ADD",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "CMP con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "CMP",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "CMP con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "CMP",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "CMP con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "CMP",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "CMP con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "CMP",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "DIV con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DIV",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "DIV con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DIV",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "DIV con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DIV",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "DIV con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DIV",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "DUP con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DUP",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "DUP con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DUP",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "DUP con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DUP",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "DUP con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DUP",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "JMP con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "JMP",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "JMP con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "JMP",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "JMP con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "JMP",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "JMP con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "JMP",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MOD con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOD",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MOD con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOD",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "MOD con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOD",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "MOD con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOD",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MOV con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOV",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MOV con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOV",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MOV con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOV",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "MOV con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MOV",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MUL con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MUL",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "MUL con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MUL",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "MUL con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MUL",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "MUL con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "MUL",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "NEG con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "NEG",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "NEG con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "NEG",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "NEG con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "NEG",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "NEG con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "NEG",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "POP con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "POP con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "POP con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "POP con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "PUSH con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "PUSH con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "PUSH con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "PUSH con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "SUB con 0 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "SUB",
+      "operandos": []
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "SUB con 1 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "SUB",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "SUB con 2 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "SUB",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "SUB con 3 operandos",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "SUB",
+      "operandos": [
+       "a",
+       "2",
+       "4"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "lectura vacia",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": []
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "sin instrucciones y no estable",
+   "lectura": {
+    "estable": false,
+    "compatible": true,
+    "instrucciones": []
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "no estable",
+   "lectura": {
+    "estable": false,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "no compatible",
+   "lectura": {
+    "estable": true,
+    "compatible": false,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "ni estable ni compatible",
+   "lectura": {
+    "estable": false,
+    "compatible": false,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "sin leer en primer operando",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "<sin leer>",
+       "2"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "sin leer en segundo operando",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "<sin leer>"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "sin leer en operacion unaria",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP",
+      "operandos": [
+       "<sin leer>"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "sin leer en una de varias instrucciones",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "2"
+      ]
+     },
+     {
+      "token": "ADD",
+      "operandos": [
+       "<sin leer>"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "token desconocido",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "NOPE",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "token vacio",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "operandos ausentes",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP"
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "operandos no es lista",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "POP",
+      "operandos": "a"
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "programa valido de tres instrucciones",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "3"
+      ]
+     },
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "5"
+      ]
+     },
+     {
+      "token": "ADD",
+      "operandos": [
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "programa valido con unaria y binaria",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "DUP",
+      "operandos": [
+       "a"
+      ]
+     },
+     {
+      "token": "MOV",
+      "operandos": [
+       "b",
+       "a"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  },
+  {
+   "nombre": "una instruccion invalida basta para rechazar",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "3"
+      ]
+     },
+     {
+      "token": "JMP",
+      "operandos": [
+       "a",
+       "3"
+      ]
+     }
+    ]
+   },
+   "esperado": false
+  },
+  {
+   "nombre": "nil como operando es legible",
+   "lectura": {
+    "estable": true,
+    "compatible": true,
+    "instrucciones": [
+     {
+      "token": "PUSH",
+      "operandos": [
+       "a",
+       "nil"
+      ]
+     }
+    ]
+   },
+   "esperado": true
+  }
+ ]
+}

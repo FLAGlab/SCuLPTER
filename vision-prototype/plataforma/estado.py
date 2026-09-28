@@ -99,7 +99,7 @@ class Estado:
                 color[~valido] = 0
                 camara.jpeg_depth = cv2.imencode('.jpg', color)[1].tobytes()
             camara.historial.append({'secuencia': camara.secuencia, 'instante': cuadro.instante, 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'observaciones': observaciones, 'profundidad': cuadro.profundidad, 'intrinsecos': cuadro.intrinsecos})
-            camara.datos = {'firma': firma, 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'estable': estable, 'instrucciones': candidato, 'profundidad': cuadro.profundidad is not None, 'avisos': avisos, 'compatible': not avisos}
+            camara.datos = {'firma': firma, 'ambito': 'camara', 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'estable': estable, 'instrucciones': candidato, 'profundidad': cuadro.profundidad is not None, 'avisos': avisos, 'compatible': not avisos}
 
     def resumen(self):
         with self.lock:
@@ -148,9 +148,15 @@ class Estado:
             if accion == 'configurar_fusion':
                 modo = datos.get('modo', 'fusion')
                 paso = float(datos.get('paso_mm', self.config['fusion']['paso_mm']))
+                bruto = datos.get('paso_2_mm', self.config['fusion'].get('paso_2_mm'))
+                paso2 = float(bruto) if bruto not in (None, '') else None
                 if modo not in {'fusion', 'individual'} or not np.isfinite(paso) or not 20 <= paso <= 300:
                     raise ValueError('Elige un modo válido y un paso de 20 a 300 mm.')
-                self.config['fusion'] = {'modo': modo, 'paso_mm': paso, 'medido': True}
+                if paso2 is not None and (not np.isfinite(paso2) or not 20 <= paso2 <= 300):
+                    raise ValueError('El segundo paso debe ir de 20 a 300 mm.')
+                if paso2 is not None and abs(paso2 - paso) < 2:
+                    raise ValueError('Los dos pasos son casi iguales. Deja vacío el segundo si toda la cadena usa el mismo bloque.')
+                self.config['fusion'] = {'modo': modo, 'paso_mm': paso, 'paso_2_mm': paso2, 'medido': True}
                 self.fusion.reiniciar()
                 self.guardar()
                 return self.resumen()

@@ -85,7 +85,7 @@ def principal():
     parser.add_argument('--config', default=str(RAIZ / 'datos_locales' / 'montaje.json'))
     parser.add_argument('--out', required=True)
     parser.add_argument('--esperado', required=True, help='programa real, con una instrucción por línea o separadas por punto y coma')
-    parser.add_argument('--escena', required=True, choices=('completa', 'oclusion', 'movimiento', 'repetidos'))
+    parser.add_argument('--escena', required=True, choices=('completa', 'oclusion', 'movimiento', 'repetidos', 'retirada'))
     parser.add_argument('--debe-ejecutar', action='store_true', help='marca una escena completa y quieta donde se admite ejecutar')
     parser.add_argument('--duracion', type=float, default=8)
     parser.add_argument('--fps', type=int, default=4)

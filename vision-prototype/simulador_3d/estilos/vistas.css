@@ -112,3 +112,14 @@ body.modo-gravedad #aviso { color: var(--text-2); }
 #vistas .catalogo-camara .camara-frame .nota { text-align: center; max-width: 180px; }
 .catalogo-aporte { min-height: 32px; color: var(--text-2); line-height: 16px; }
 @media (max-width: 900px) { #camaras-lista { grid-template-columns: minmax(0, 1fr); } }
+#vistas .avisoc { color: var(--una); }
+#vistas .scap.avisoc { color: #9a7500; }
+.ensayo-cabecera { display: flex; align-items: center; gap: 12px; padding: 0 0 8px; }
+.ensayo-cabecera .fld { width: 160px; flex: none; }
+.ensayo-cabecera .nota { margin: 0; }
+.ensayo-codigo { margin: 0 0 8px; white-space: pre-wrap; }
+.ensayo-lista { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ensayo-item { display: inline-flex; gap: 4px; padding: 3px 8px; border-radius: 5px; background: var(--field); font-size: 12px; }
+.dictamen { display: flex; gap: 8px; align-items: flex-start; }
+.dictamen-origen { flex: none; width: 52px; color: var(--text-3); font-family: var(--mono); font-size: 11.5px; line-height: 17px; }
+.dictamen .nota { margin-top: 2px; white-space: pre-wrap; }

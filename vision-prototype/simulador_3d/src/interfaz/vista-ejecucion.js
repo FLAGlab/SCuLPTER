@@ -62,3 +62,34 @@ export function dibujarEjecucion(ejecucion, montaje, estado) {
   tabla.append(body);
   $("ej-traza-nota").textContent = cursor === 0 ? "Todavía no se ha ejecutado ninguna instrucción." : cursor > 80 ? "Se muestran los últimos 80 pasos del estado elegido. El último valor de cada lista es el tope." : "El último valor de cada lista es el tope. Los resultados futuros se muestran al avanzar.";
 }
+
+export function dibujarSeguimiento(ejecucion, montaje, veredicto, etiquetas) {
+  const { actual, cursor, ultimo, resultado } = ejecucion;
+  const programa = montaje.programa();
+  const activo = veredicto.seguible && !!actual;
+  const terminal = activo && cursor === ultimo;
+  const error = terminal && resultado?.error;
+  $("mesa-contador").textContent = activo ? `paso ${cursor} de ${ultimo}` : "";
+  $("mesa-ver-ejecucion").disabled = !activo;
+  const caja = $("mesa-instruccion"); caja.replaceChildren();
+  if (!activo) caja.append(nodo("span", "t3", "Sin ejecución"));
+  else if (actual.siguiente != null) caja.append(nodo("span", "pc", error ? "!" : "▶"), nodo("span", "mono", String(actual.siguiente + 1)), instruccion(programa[actual.siguiente], montaje));
+  else caja.append(nodo("span", "", "Fin del programa"));
+  const aviso = $("mesa-estado");
+  aviso.textContent = !activo ? ""
+    : error ? `Error en la instrucción ${error.instruccion + 1}: ${error.mensaje}`
+    : cursor === 0 ? "Sin recorrer. Abre Ejecución para avanzar paso a paso."
+    : terminal ? "Recorrido hasta el final." : `Recorrido hasta el paso ${cursor} de ${ultimo}.`;
+  aviso.className = "nota" + (error ? " errc" : "");
+  const pilas = $("mesa-pilas"); pilas.replaceChildren();
+  if (!activo) return;
+  const nombres = Object.keys(actual.pilas).sort();
+  if (!nombres.length) { pilas.append(nodo("p", "nota", "Todavía no hay pilas con valores.")); return; }
+  for (const nombre of nombres) {
+    const linea = nodo("div", "pila-linea");
+    const rotulo = nodo("span", "pila-nombre");
+    rotulo.append(simbolo(contenidoPila(nombre, montaje), true));
+    linea.append(rotulo, nodo("span", "mono pila-valores", mostrarPila(actual.pilas[nombre])));
+    pilas.append(linea);
+  }
+}

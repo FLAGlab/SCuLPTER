@@ -4,7 +4,9 @@ import unittest
 
 import numpy as np
 
-from plataforma.fusion import Fusion, CONFIGURACION, reconstruir
+from pathlib import Path
+
+from plataforma.fusion import Fusion, CONFIGURACION, reconstruir, puede_ejecutar
 from plataforma.geometria_fusion import modelo, proyectar, triangular
 
 
@@ -187,3 +189,34 @@ class FusionTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HabilitarEjecucionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        ruta = Path(__file__).resolve().parent / 'datos' / 'habilitar_ejecucion.json'
+        cls.compartido = json.loads(ruta.read_text(encoding='utf-8'))
+
+    def test_los_casos_compartidos_dan_el_resultado_fijado(self):
+        for caso in self.compartido['casos']:
+            with self.subTest(caso['nombre']):
+                self.assertEqual(puede_ejecutar(caso['lectura']), caso['esperado'])
+
+    def test_los_casos_cubren_todos_los_operadores_y_aridades(self):
+        from plataforma.fusion import ARIDADES
+        self.assertEqual({k: list(v) for k, v in ARIDADES.items()}, self.compartido['aridades'])
+        nombres = ' '.join(c['nombre'] for c in self.compartido['casos'])
+        for token in ARIDADES:
+            for n in range(4):
+                self.assertIn(f'{token} con {n} operandos', nombres)
+
+    def test_hay_casos_de_sobra_de_los_dos_signos(self):
+        esperados = [c['esperado'] for c in self.compartido['casos']]
+        self.assertGreater(esperados.count(True), 10)
+        self.assertGreater(esperados.count(False), 10)
+
+    def test_evaluar_sesion_decide_con_la_misma_condicion(self):
+        fuente = (Path(__file__).resolve().parents[1] / 'herramientas' / 'evaluar_sesion.py').read_text(encoding='utf-8')
+        self.assertIn('from plataforma.fusion import Fusion, puede_ejecutar', fuente)
+        self.assertIn('habilita = puede_ejecutar(resultado)', fuente)
+        self.assertNotIn("bool(resultado['estable'])", fuente)
