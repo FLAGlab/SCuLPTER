@@ -12,6 +12,10 @@ from plataforma.estado import Estado
 from plataforma.dispositivos import Cuadro, Camara
 from plataforma.calibracion import Calibracion
 from plataforma.vocabulario import lexema
+from plataforma.fusion import ganador
+from clasificador_simbolos import aceptar_candidatos
+from plataforma.lectura import leer_cuadro
+from herramientas.evaluar_dataset import evaluar_imagen
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -44,7 +48,7 @@ class PlataformaTest(unittest.TestCase):
         a, b = self.agregar(), self.agregar('1')
         imagen = np.full((80, 80, 3), 255, np.uint8)
         ahora = time.monotonic()
-        with patch('plataforma.estado.regiones', return_value=[(imagen, 40, 40)]), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'POP', 'puntaje': .9}]):
+        with patch('plataforma.lectura.regiones', return_value=[(imagen, 40, 40)]), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'POP', 'puntaje': .9}]):
             self.estado.procesar(self.estado.camaras[a], Cuadro(imagen, ahora-1))
             self.estado.procesar(self.estado.camaras[a], Cuadro(imagen, ahora))
         self.assertTrue(self.estado.resumen()['camaras'][0]['estable'])
@@ -58,13 +62,41 @@ class PlataformaTest(unittest.TestCase):
         id = self.agregar()
         cam = self.estado.camaras[id]
         img = np.full((80, 80, 3), 255, np.uint8)
-        with patch('plataforma.estado.regiones', return_value=[(img, 40, 40)]), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'POP', 'puntaje': .9}, {'lexema': 'DUP', 'puntaje': .88}]):
+        with patch('plataforma.lectura.regiones', return_value=[(img, 40, 40)]), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'POP', 'puntaje': .9}, {'lexema': 'DUP', 'puntaje': .88}]):
             self.estado.procesar(cam, Cuadro(img, time.monotonic()-1))
             self.estado.procesar(cam, Cuadro(img, time.monotonic()))
         self.assertEqual(cam.observaciones[0]['lexema'], '<sin leer>')
-        with patch('plataforma.estado.regiones', return_value=[(img, 60, 40)]):
+        with patch('plataforma.lectura.regiones', return_value=[(img, 60, 40)]):
             self.estado.procesar(cam, Cuadro(img, time.monotonic()))
         self.assertFalse(cam.datos['estable'])
+
+    def test_regla_compartida_en_los_valores_limite(self):
+        casos = [
+            ([('PUSH', .45), ('MOV', .37)], 'PUSH'),
+            ([('PUSH', .449999), ('MOV', .36)], None),
+            ([('PUSH', .8), ('MOV', .720001)], None),
+            ([('PUSH', .8), ('MOV', .72)], 'PUSH'),
+        ]
+        for candidatos, esperado in casos:
+            diccionarios = [{'lexema': lexema, 'puntaje': valor} for lexema, valor in candidatos]
+            self.assertEqual(aceptar_candidatos(candidatos), esperado)
+            self.assertEqual(aceptar_candidatos(diccionarios), esperado)
+            self.assertEqual(ganador(diccionarios), esperado)
+
+    def test_evaluador_y_camara_comparten_lectura(self):
+        id = self.agregar()
+        imagen = np.full((80, 80, 3), 255, np.uint8)
+        ruta = Path(self.temporal.name) / 'cuadro.png'
+        cv2.imwrite(str(ruta), imagen)
+        with patch('plataforma.lectura.regiones', return_value=[(imagen, 40, 40)]), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'PUSH', 'puntaje': .45}, {'lexema': 'MOV', 'puntaje': .37}]):
+            self.estado.procesar(self.estado.camaras[id], Cuadro(imagen, time.monotonic()))
+            medido = evaluar_imagen(str(ruta), 'PUSH', self.estado.vocabulario)
+        self.assertEqual(self.estado.camaras[id].observaciones[0]['lexema'], 'PUSH')
+        self.assertEqual(medido['reconstruido'], ['PUSH'])
+        self.assertTrue(medido['programa_exacto'])
+        with patch('plataforma.lectura.regiones', return_value=[(imagen, 40, 40)]), patch.object(self.estado.vocabulario, 'puntuar', return_value=[]):
+            _, lecturas = leer_cuadro(imagen, self.estado.vocabulario)
+        self.assertEqual(lecturas, [])
 
     def test_referencias_multiples_e_identidad_libre(self):
         img = np.full((120, 120, 3), 255, np.uint8)
@@ -130,7 +162,7 @@ class PlataformaTest(unittest.TestCase):
         id = self.agregar()
         imagen = np.full((80, 80, 3), 255, np.uint8)
         regiones = [(imagen, x, 40) for x in [10, 30, 50, 70]]
-        with patch('plataforma.estado.regiones', return_value=regiones), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'a', 'puntaje': .9}]):
+        with patch('plataforma.lectura.regiones', return_value=regiones), patch.object(self.estado.vocabulario, 'puntuar', return_value=[{'lexema': 'a', 'puntaje': .9}]):
             self.estado.procesar(self.estado.camaras[id], Cuadro(imagen, time.monotonic()))
         datos = self.estado.camaras[id].datos
         self.assertFalse(datos['compatible'])
@@ -141,7 +173,7 @@ class PlataformaTest(unittest.TestCase):
         id = self.agregar()
         img = np.full((1080,1920,3),255,np.uint8)
         pequena = np.full((540,960,3),255,np.uint8)
-        with patch('plataforma.estado.reducir_resolucion', return_value=pequena), patch('plataforma.estado.regiones', return_value=[(pequena[:20,:30],100,200)]), patch.object(self.estado.vocabulario,'puntuar', return_value=[{'lexema':'PUSH','puntaje':.9}]):
+        with patch('plataforma.lectura.reducir_resolucion', return_value=pequena), patch('plataforma.lectura.regiones', return_value=[(pequena[:20,:30],100,200)]), patch.object(self.estado.vocabulario,'puntuar', return_value=[{'lexema':'PUSH','puntaje':.9}]):
             self.estado.procesar(self.estado.camaras[id],Cuadro(img,time.monotonic()))
         o = self.estado.camaras[id].historial[-1]['observaciones'][0]
         self.assertEqual((o['x'],o['y']),(200,400))
@@ -161,7 +193,7 @@ class PlataformaTest(unittest.TestCase):
         id = self.agregar()
         cam = self.estado.camaras[id]
         img = np.full((80,80,3),255,np.uint8)
-        with patch('plataforma.estado.regiones',return_value=[]):
+        with patch('plataforma.lectura.regiones',return_value=[]):
             t=time.monotonic()
             self.estado.procesar(cam,Cuadro(img,t))
             self.estado.procesar(cam,Cuadro(img,t-1))

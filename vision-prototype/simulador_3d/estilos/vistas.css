@@ -92,3 +92,23 @@ body.modo-gravedad #aviso { color: var(--text-2); }
 .pieza-observada { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .pieza-observada > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
 .pieza-observada .nota { margin: 4px 0 0; overflow-wrap: anywhere; }
+#mapa-camaras { margin-bottom: 24px; }
+.mapa-frame { background: var(--panel); padding: 12px 16px 16px; }
+.mapa-frame svg { display: block; width: 100%; height: 180px; }
+.mapa-frame .nota { margin: 4px 0 0; }
+.mapa-mesa { fill: var(--field); stroke: var(--line); stroke-width: 2; }
+.mapa-rayo { stroke: var(--text-3); stroke-width: 2; stroke-dasharray: 5 5; }
+.mapa-punto { fill: var(--panel); stroke: var(--text); stroke-width: 2; }
+.mapa-numero { fill: var(--text); font: 500 12px var(--sans); }
+.mapa-texto { fill: var(--text-2); font: 500 12px var(--sans); }
+#camaras-lista { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.catalogo-camara { background: var(--panel); min-width: 0; padding: 16px; }
+.catalogo-cabecera { display: flex; gap: 12px; align-items: flex-start; min-height: 52px; }
+.catalogo-cabecera strong { display: block; font-size: 12.5px; font-weight: 600; }
+.catalogo-cabecera .nota { margin: 4px 0 0; overflow-wrap: anywhere; }
+.catalogo-numero { flex: none; display: grid; place-items: center; width: 24px; height: 24px; background: var(--field); color: var(--text); font-weight: 600; }
+#vistas .catalogo-camara .frame { margin: 12px 0; background: var(--field); }
+#vistas .catalogo-camara .camara-frame { min-height: 190px; padding: 12px; }
+#vistas .catalogo-camara .camara-frame .nota { text-align: center; max-width: 180px; }
+.catalogo-aporte { min-height: 32px; color: var(--text-2); line-height: 16px; }
+@media (max-width: 900px) { #camaras-lista { grid-template-columns: minmax(0, 1fr); } }

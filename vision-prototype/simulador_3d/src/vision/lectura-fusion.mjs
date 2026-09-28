@@ -1,4 +1,4 @@
-import { OPERACIONES } from './montaje.mjs';
+import { OPERACIONES } from '../modelo/montaje.mjs';
 
 export function puedeAplicarLectura(lectura) {
   return !!lectura?.estable && !!lectura.compatible && !!lectura.instrucciones?.length && lectura.instrucciones.every(i => {

@@ -312,8 +312,7 @@ async def desde_camaras(fuentes: list, una_vez: bool, servidor: ServidorSimulado
                 ultima_lectura_estable = clave_estable
                 reportar(detecciones, avisos, indice_mejor, len(capturas))
                 if servidor is not None:
-                    instrucciones = instrucciones(detecciones)
-                    await servidor.difundir({"tipo": "programa", "instrucciones": instrucciones})
+                    await servidor.difundir({"tipo": "programa", "instrucciones": instrucciones(detecciones)})
                 if una_vez:
                     break
 

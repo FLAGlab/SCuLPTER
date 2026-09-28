@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { OPERACIONES } from './montaje.mjs';
-import { crearFichaOperando } from './piezas.js';
-import { EJEMPLOS, montajeEjemplo } from './ejemplos.mjs';
-import { puedeAplicarLectura, codigoLectura, esEstadoActual } from './lectura-fusion.mjs';
+import { OPERACIONES } from '../modelo/montaje.mjs';
+import { crearFichaOperando } from '../escena/piezas.js';
+import { EJEMPLOS, montajeEjemplo } from '../modelo/ejemplos.mjs';
+import { puedeAplicarLectura, codigoLectura, esEstadoActual } from '../vision/lectura-fusion.mjs';
+import { catalogoCamaras } from '../vision/catalogo-camaras.mjs';
 
 const escapar = valor => String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = id => document.getElementById(id);
@@ -31,16 +32,16 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   raiz.innerHTML = `
     <div id="vistas-lienzo">
       <section data-vista="ejemplos" hidden><div class="frame-label" id="ejemplo-nombre"></div><div class="frame" id="ejemplo-plano"></div><div class="frame-label">Texto SCuLPT</div><pre class="frame code" id="ejemplo-codigo"></pre></section>
-      <section data-vista="camaras" hidden><div id="camaras-lista"></div><p id="camaras-vacio" class="canvas-note">Añade una cámara desde el panel derecho para ver su imagen.</p></section>
+      <section data-vista="camaras" hidden><div id="mapa-camaras"></div><p id="camaras-vacio" class="canvas-note">Montaje de referencia. Añade tus cámaras desde el panel derecho para registrar sus posiciones y ver las imágenes reales.</p><div id="camaras-lista"></div></section>
       <section data-vista="calibracion" hidden><div class="frame-label">Captura actual</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
       <section data-vista="simbolos" hidden><div id="simbolos-lista"></div></section>
       <section data-vista="piezas" hidden><div class="frame-label">Piezas que computan</div><div class="frame pieces">${MODELOS.slice(0,4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><div class="frame-label">Piezas de estructura</div><div class="frame pieces">${MODELOS.slice(4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><p class="canvas-note">Las piezas de estructura sostienen la escultura. No cambian el programa.</p><div class="frame-label" id="modelo-titulo"></div><div class="frame" id="modelo-visor" aria-label="Vista 3D de la pieza"></div></section>
     </div>
     <aside id="vistas-propiedades" class="panel">
       <div id="vista-mensaje" role="status" hidden></div>
-      <div data-prop="ejemplos" hidden>${seccion('Ejemplo', '<div id="ejemplo-descripcion"></div><p class="nota" id="ejemplo-forma"></p><div class="acciones"><button class="accion" id="ejemplo-mesa">Cargar en mesa</button><button class="accion primaria" id="ejemplo-ejecucion">Ver ejecución</button></div>')}${seccion('Montaje', '<button class="accion" id="ejemplo-gravedad">Ver con gravedad</button><p class="nota">Vista de caída vertical con uniones rígidas. Al salir se recupera la posición original.</p><button class="accion" id="ejemplo-restaurar" disabled>Restaurar mi montaje</button>')}</div>
+      <div data-prop="ejemplos" hidden>${seccion('Ejemplo', '<div id="ejemplo-descripcion"></div><p class="nota" id="ejemplo-forma"></p><div class="acciones"><button class="accion" id="ejemplo-mesa">Cargar en mesa</button><button class="accion primaria" id="ejemplo-ejecucion">Ver ejecución</button></div>')}${seccion('Montaje', '<button class="accion" id="ejemplo-gravedad">Ver con gravedad</button><p class="nota">Sujeta un extremo del montaje y levántalo. Cada bloque gira en su conector y se apoya en la mesa al soltarlo.</p><button class="accion" id="ejemplo-restaurar" disabled>Restaurar mi montaje</button>')}</div>
       <div data-prop="camaras" hidden>
-        ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><p class="nota">Actualiza con una lectura completa y estable. Una oclusión o un desacuerdo pausa la ejecución. Las conexiones se estiman por geometría.</p>')}
+        ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><p class="nota">Actualiza con una lectura completa y estable. Una oclusión o un desacuerdo pausa la ejecución. Una ficha leída tiene posición y símbolo sin contradicción observada: puede proceder de una sola cámara. Los encajes se estiman por geometría.</p>')}
         ${seccion('Lectura compartida', `<form id="fusion-form">${propiedad('Origen','<select class="fld" name="modo"><option value="fusion">Combinar cámaras</option><option value="individual">Una sola vista</option></select>')}${propiedad('Paso (mm)','<input class="fld" name="paso_mm" type="number" min="20" max="300" step="0.1" required>')}<p class="nota">Mide la distancia entre los centros de las fichas de operación de bloques consecutivos. Todas las cámaras deben estar registradas en Calibración.</p><button class="accion" type="submit">Guardar lectura</button></form><div id="fusion-resumen" class="nota"></div><div id="fusion-piezas"></div><button class="accion" id="fusion-reiniciar">Reiniciar seguimiento</button><p class="nota">Si retiraste piezas, reinicia cuando la mesa esté visible. No se borran piezas por una oclusión.</p>`)}
         ${seccion('Lecturas por cámara', '<div id="cam-lecturas-panel"></div><p class="nota">Los puntajes miden similitud, no probabilidad. Una cámara que no ve una ficha no vota en su contra.</p>')}
         ${seccion('Cámara', `<div id="cam-controles"></div><details><summary>Añadir cámara</summary><form id="camara-form">${propiedad('Nombre','<input class="fld" name="nombre" placeholder="Cenital…" maxlength="80" required>')}${propiedad('Dispositivo','<select class="fld" name="tipo"><option value="webcam">Webcam</option><option value="kinect">Kinect v2</option><option value="realsense">RealSense</option></select>')}${propiedad('Índice / serial','<input class="fld" name="fuente" value="0">')}${propiedad('Aporte','<select class="fld" name="rol"><option value="simbolos">Símbolos</option><option value="profundidad">Profundidad</option><option value="ambos">Ambos</option></select>')}<button class="accion primaria" type="submit">Añadir cámara</button></form></details><details><summary>Montajes y controladores</summary><div id="adaptadores"></div><p class="nota">A: RealSense y webcams. B: Kinect v2 y webcams. Kinect de Xbox 360 es v1 y aún no tiene adaptador; identifica el modelo antes de conectarlo.</p></details>`)}
@@ -54,7 +55,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       <div data-prop="simbolos" hidden>
         <form id="simbolo-form">${seccion('Símbolo', `<div id="simbolo-grande" class="big-glyph"></div>${propiedad('Nombre','<input class="fld mono" name="nombre" maxlength="80" placeholder="Nombre del dibujo" required>')}${propiedad('Tipo','<select class="fld" name="tipo"><option value="pila">Etiqueta de pila</option><option value="literal">Número o nil</option><option value="operacion">Operación</option></select>')}<button class="accion" type="button" id="simbolo-nuevo">Nuevo símbolo</button>`)}
         ${seccion('Fotos de referencia', '<div id="simbolo-fotos" class="thumbs"></div><label class="foto-label">Foto de una sola ficha<input name="foto" id="foto-simbolo" class="archivo-oculto" type="file" accept="image/png,image/jpeg" required></label><button class="accion" type="button" id="seleccionar-foto">Seleccionar foto</button><p class="nota" id="foto-nombre">Ninguna foto seleccionada.</p><button class="accion primaria" type="submit">Guardar referencia</button><p class="nota">Puedes guardar varias fotos para el mismo nombre.</p>')}</form>
-        ${seccion('Se parece a', '<button class="accion" id="simbolo-probar">Probar esta foto</button><div id="simbolo-prueba"></div><p class="nota">La lectura debe superar 0.45 y separar al menos 0.08 del segundo símbolo.</p>')}
+        ${seccion('Se parece a', '<button class="accion" id="simbolo-probar">Probar esta foto</button><div id="simbolo-prueba"></div><p class="nota">La lectura requiere similitud de 0.45 o más y una diferencia de 0.08 o más con el segundo símbolo.</p>')}
       </div>
       <div data-prop="piezas" hidden>${seccion('Imprimir', '<p id="modelo-descripcion"></p><a class="accion primaria" id="modelo-descarga" download>Descargar STL original</a><p class="nota">Se descarga la geometría original. Las fichas de operaciones comparten una lámina; los parámetros editables de la mesa son representaciones.</p>')}${seccion('Total', '<div id="inventario"></div>')}</div>
       <div id="servicio-seccion" class="sec"><div class="sec-head">Servicio de visión</div><div id="servicio-estado" role="status"></div><div id="servicio-ayuda" hidden><p class="nota">Desde vision-prototype inicia <code>python3 servicio.py</code>.</p><button class="accion" id="servicio-reintentar">Volver a conectar</button></div></div>
@@ -160,7 +161,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const firma = principal.id + codigoLectura(principal);
     if (firma !== firmaLectura) {
       detenerValidacion(); firmaLectura = firma; dictamenLectura = 'Validando el programa…'; errorLectura = false;
-      motorLectura = new Worker(new URL('./interprete-worker.js', import.meta.url), {type:'module'});
+      motorLectura = new Worker(new URL('../interprete-worker.js', import.meta.url), {type:'module'});
       const terminar = (texto, error) => { if (firmaLectura !== firma) return; detenerValidacion(); dictamenLectura = texto; errorLectura = error; };
       motorLectura.onmessage = ({data}) => { const r = data.resultado; terminar(r.valido ? r.completa ? 'Programa válido. Uniones físicas por confirmar.' : 'Ejecución detenida por límite.' : 'Programa inválido. ' + (r.mensaje || ''), !r.valido || !r.completa); };
       motorLectura.onerror = () => terminar('No se pudo validar con el intérprete.', true);
@@ -170,17 +171,25 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     $('lectura-estado').textContent = dictamenLectura;
     $('lectura-estado').className = errorLectura ? 'errc' : motorLectura ? '' : 'okc';
   }
+  function pintarCatalogo(camaras) {
+    const fichas = catalogoCamaras(camaras);
+    const previsto = !camaras.length;
+    const localizadas = fichas.filter(c => c.plano);
+    $('mapa-camaras').innerHTML = `<div class="frame-label">${previsto ? 'Montaje previsto' : 'Posiciones respecto al tablero'}</div><div class="mapa-frame"><svg viewBox="0 0 360 205" role="img" aria-label="${previsto ? 'Esquema de cámaras sugeridas alrededor de la mesa' : 'Ubicación calibrada de las cámaras alrededor del tablero'}"><rect x="110" y="54" width="160" height="104" rx="8" class="mapa-mesa"/><text x="190" y="110" text-anchor="middle" class="mapa-texto">Mesa</text>${localizadas.map((c, i) => `<line x1="${c.plano[0]}" y1="${c.plano[1]}" x2="190" y2="106" class="mapa-rayo"/><circle cx="${c.plano[0]}" cy="${c.plano[1]}" r="15" class="mapa-punto"/><text x="${c.plano[0]}" y="${c.plano[1] + 4}" text-anchor="middle" class="mapa-numero">${i + 1}</text>`).join('')}</svg><p class="nota">${previsto ? 'Ubicaciones sugeridas, todavía sin cámaras configuradas.' : localizadas.length ? `${localizadas.length} de ${fichas.length} posiciones registradas. Los ejes siguen el tablero de calibración.` : 'Registra las cámaras en Calibración para situarlas en este plano.'}</p></div>`;
+    $('camaras-lista').innerHTML = fichas.map((c, i) => `<article class="catalogo-camara" ${c.prevista ? '' : `data-camara="${escapar(c.id)}"`}><div class="catalogo-cabecera"><span class="catalogo-numero">${i + 1}</span><div><strong>${escapar(c.nombre)}</strong><p class="nota">${escapar(c.ubicacion)}</p></div></div><div class="frame camara-frame">${c.prevista ? '<p class="nota">Vista disponible cuando se conecte una cámara.</p>' : `<img class="camara-imagen cam-color" alt="Imagen de ${escapar(c.nombre)}" hidden><p class="cam-sin-imagen nota">Conecta esta cámara para ver su imagen.</p>`}</div>${c.prevista ? '' : `<div class="frame profundidad-frame" hidden><img class="camara-imagen cam-depth" alt="Profundidad de ${escapar(c.nombre)}" hidden></div>`}<p class="catalogo-aporte">${escapar(c.aporte)}</p></article>`).join('');
+    $('camaras-vacio').hidden = !previsto;
+  }
+  pintarCatalogo([]);
   function pintarCamaras() {
-    const firma = JSON.stringify(estado.camaras.map(c => [c.id, c.nombre, c.tipo]));
+    const firma = JSON.stringify(estado.camaras.map(c => [c.id, c.nombre, c.tipo, c.pose]));
     if (firma !== firmaCamaras) {
       firmaCamaras = firma;
-      $('camaras-lista').innerHTML = estado.camaras.map(c => `<div data-camara="${c.id}"><div class="frame-label">${escapar(c.nombre)}</div><div class="frame camara-frame"><img class="camara-imagen cam-color" alt="Imagen de ${escapar(c.nombre)}" hidden><p class="cam-sin-imagen nota">Conecta esta cámara para ver su imagen.</p></div><div class="frame profundidad-frame" hidden><img class="camara-imagen cam-depth" alt="Profundidad de ${escapar(c.nombre)}" hidden></div></div>`).join('');
+      pintarCatalogo(estado.camaras);
       $('cam-controles').innerHTML = estado.camaras.map(c => `<div class="cam-row" data-control="${c.id}"><strong>${escapar(c.nombre)}</strong><p class="cam-estado nota"></p><p class="cam-error error"></p><div class="acciones"><button class="accion" data-accion="iniciar">Conectar</button><button class="accion" data-accion="detener">Desconectar</button><button class="accion" data-accion="principal">Usar para programa</button><button class="accion" data-accion="eliminar">Quitar</button></div></div>`).join('');
       const anterior = $('cal-camara').value;
       $('cal-camara').innerHTML = estado.camaras.map(c => `<option value="${c.id}">${escapar(c.nombre)}</option>`).join('');
       if (estado.camaras.some(c => c.id === anterior)) $('cal-camara').value = anterior;
     }
-    $('camaras-vacio').hidden = estado.camaras.length > 0;
     for (const c of estado.camaras) {
       const tarjeta = raiz.querySelector(`[data-control="${c.id}"]`);
       const marco = raiz.querySelector(`[data-camara="${c.id}"]`);
@@ -211,7 +220,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const nombres = Object.fromEntries(estado.camaras.map(c => [c.id,c.nombre]));
     const estadosPieza = {confirmada:'Leída',ambigua:'Ambigua',oculta:'Oculta',no_observada:'Sin observación reciente'};
     $('fusion-piezas').hidden = config.modo !== 'fusion';
-    $('fusion-piezas').innerHTML = (fusion?.piezas || []).map(p => `<div class="pieza-observada"><div><span class="mono">${escapar(estado.etiquetas?.[p.lexema] || p.lexema)}</span><span class="${p.estado === 'confirmada' ? '' : 'errc'}">${escapar(estadosPieza[p.estado] || p.estado)}</span></div><div class="nota">${escapar(p.id)} · ${escapar(p.camaras.map(id => nombres[id] || id).join(', '))}${p.candidatos?.length ? ' · similitud ' + p.candidatos[0].puntaje.toFixed(2) : ''}</div></div>`).join('');
+    $('fusion-piezas').innerHTML = (fusion?.piezas || []).map(p => `<div class="pieza-observada"><div><span class="mono">${escapar(estado.etiquetas?.[p.lexema] || p.lexema)}</span><span class="${p.estado === 'confirmada' ? '' : 'errc'}">${escapar(estadosPieza[p.estado] || p.estado)}${p.estado === 'confirmada' ? ` · ${p.camaras.length} ${p.camaras.length === 1 ? 'vista' : 'vistas'}` : ''}</span></div><div class="nota">${escapar(p.id)} · ${escapar(p.camaras.map(id => nombres[id] || id).join(', '))}${p.candidatos?.length ? ' · similitud ' + p.candidatos[0].puntaje.toFixed(2) : ''}</div></div>`).join('');
     const principal = config.modo === 'fusion' ? fusion : estado.camaras.find(c => c.id === estado.principal);
     $('lectura-codigo').hidden = !principal?.instrucciones?.length;
     $('lectura-codigo').textContent = (principal?.instrucciones || []).map(i => [i.token, ...i.operandos.map(v => estado.etiquetas?.[v] || v)].join(' ')).join('\n');

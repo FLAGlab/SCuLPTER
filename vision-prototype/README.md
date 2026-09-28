@@ -29,8 +29,8 @@ Luego abre la dirección local que muestra el servicio. Para el simulador sin c�
 ## Verificar
 
 ```bash
-python3 -m unittest discover -s vision-prototype/tests
-node --test vision-prototype/simulador_3d/*.test.mjs
+PYTHONPATH=vision-prototype python3 -m unittest discover -s vision-prototype/tests
+node --test vision-prototype/simulador_3d/tests/*.test.mjs
 ```
 
 La [guía de reconstrucción clásica](docs/reconstruccion-clasica.md) conserva los comandos para captura de referencias, evaluación del reconocedor, calibración estéreo y uso de los puntos sintéticos. Las herramientas se ejecutan desde `vision-prototype/herramientas/`.

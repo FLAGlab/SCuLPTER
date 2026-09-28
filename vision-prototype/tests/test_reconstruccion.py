@@ -1,6 +1,7 @@
 """Tests for the 3D reconstruction pipeline that need no cameras or blocks.
 
-Run from the repo root:  python3 -m unittest discover -s vision-prototype/tests
+Run from the repo root:
+    PYTHONPATH=vision-prototype python3 -m unittest discover -s vision-prototype/tests
 """
 import json
 import os

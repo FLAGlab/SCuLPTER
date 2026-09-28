@@ -1,4 +1,4 @@
-import { lexemaParametro } from "./montaje.mjs";
+import { lexemaParametro } from "../modelo/montaje.mjs";
 export function contenidoPila(id, montaje) {
   const fichas = [...montaje.piezas.values()].filter(p => p.tipo === "parametro" && p.contenido.tipo === "etiqueta" && lexemaParametro(p.contenido) === id);
   return fichas.find(p => p.contenido.trazos?.length)?.contenido ?? fichas[0]?.contenido ?? { texto: id, trazos: [] };

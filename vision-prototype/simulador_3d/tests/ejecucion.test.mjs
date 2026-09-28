@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sculptEjecutar } from './interprete.js';
-import { Ejecucion, mostrarPila } from './ejecucion.mjs';
-import { Montaje } from './montaje.mjs';
-import { unir, conexionesValidas, pendientesConexiones, ordenarMontaje } from './conexiones.mjs';
+import { sculptEjecutar } from '../generado/interprete.js';
+import { Ejecucion, mostrarPila } from '../src/modelo/ejecucion.mjs';
+import { Montaje } from '../src/modelo/montaje.mjs';
+import { unir, conexionesValidas, pendientesConexiones, ordenarMontaje } from '../src/modelo/conexiones.mjs';
 
 test('la traza empieza en cero, sigue el intérprete y no adelanta las pilas', () => {
   const r = sculptEjecutar('PUSH circle 3\nPUSH triangle 5\nDUP triangle\nMOV circle triangle\nADD circle\n');

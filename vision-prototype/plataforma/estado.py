@@ -6,7 +6,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from reconstruir import regiones, instrucciones, reducir_resolucion
+from reconstruir import instrucciones
+from plataforma.lectura import leer_cuadro
+from reconstruir import reducir_resolucion
 from plataforma.dispositivos import Camara, capacidades
 from plataforma.calibracion import Calibracion
 from plataforma.fusion import Fusion, CONFIGURACION
@@ -54,27 +56,20 @@ class Estado:
         with camara.lock:
             if camara.cuadro is not None and cuadro.instante <= camara.cuadro.instante:
                 return
-        imagen = reducir_resolucion(cuadro.color)
-        observaciones, detecciones = [], []
+        imagen, lecturas = leer_cuadro(cuadro.color, self.vocabulario) if camara.config['rol'] != 'profundidad' else (reducir_resolucion(cuadro.color), [])
+        observaciones = [lectura['observacion'] for lectura in lecturas]
+        detecciones = [(lectura['token'], lectura['x'], lectura['y']) for lectura in lecturas]
         vista = imagen.copy()
-        if camara.config['rol'] != 'profundidad':
-            for recorte, x, y in regiones(imagen)[:80]:
-                candidatos = self.vocabulario.puntuar(recorte)
-                aceptado = bool(candidatos and candidatos[0]['puntaje'] > .45 and (len(candidatos) < 2 or candidatos[0]['puntaje'] - candidatos[1]['puntaje'] >= .08))
-                token = candidatos[0]['lexema'] if aceptado else '<sin leer>'
-                h, w = recorte.shape[:2]
-                detecciones.append((token, x, y))
-                sx, sy = cuadro.color.shape[1]/imagen.shape[1], cuadro.color.shape[0]/imagen.shape[0]
-                nitidez = float(cv2.Laplacian(cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
-                calidad = float(np.clip(min(w, h)/24, .2, 1)*np.clip(nitidez/100, .2, 1))
-                observaciones.append({'calidad': calidad, 'lexema': token, 'x': x*sx, 'y': y*sy, 'caja': [(x-w/2)*sx, (y-h/2)*sy, w*sx, h*sy], 'candidatos': candidatos})
-                color = (255, 97, 123) if token in {'PUSH', 'MOV'} else (141, 54, 240) if token in {'ADD', 'SUB', 'MUL', 'DIV', 'MOD'} else (0, 199, 255) if token in OPERACIONES else (117, 117, 117)
-                if not aceptado:
-                    color = (34, 72, 242)
-                esquina = (int(x-w/2), int(y-h/2))
-                cv2.rectangle(vista, esquina, (int(x+w/2), int(y+h/2)), color, 2)
-                etiqueta = f"{token} {candidatos[0]['puntaje']:.2f}" if aceptado else 'Sin leer'
-                cv2.putText(vista, etiqueta, (esquina[0], max(12, esquina[1]-4)), cv2.FONT_HERSHEY_SIMPLEX, .4, color, 1, cv2.LINE_AA)
+        for lectura in lecturas:
+            token, candidatos = lectura['token'], lectura['candidatos']
+            x, y, w, h = (lectura[k] for k in ('x', 'y', 'w', 'h'))
+            color = (255, 97, 123) if token in {'PUSH', 'MOV'} else (141, 54, 240) if token in {'ADD', 'SUB', 'MUL', 'DIV', 'MOD'} else (0, 199, 255) if token in OPERACIONES else (117, 117, 117)
+            if token == '<sin leer>':
+                color = (34, 72, 242)
+            esquina = (int(x - w / 2), int(y - h / 2))
+            cv2.rectangle(vista, esquina, (int(x + w / 2), int(y + h / 2)), color, 2)
+            etiqueta = f"{token} {candidatos[0]['puntaje']:.2f}" if token != '<sin leer>' else 'Sin leer'
+            cv2.putText(vista, etiqueta, (esquina[0], max(12, esquina[1] - 4)), cv2.FONT_HERSHEY_SIMPLEX, .4, color, 1, cv2.LINE_AA)
         candidato = instrucciones(detecciones)
         avisos = []
         for n, instruccion in enumerate(candidato, 1):

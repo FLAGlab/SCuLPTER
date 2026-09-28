@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CaidaVertical, conjuntosRigidos } from './gravedad.mjs';
-import { EJEMPLOS, montajeEjemplo } from './ejemplos.mjs';
-import { conexionesValidas } from './conexiones.mjs';
+import { CaidaVertical, conjuntosRigidos } from '../src/fisica/gravedad.mjs';
+import { EJEMPLOS, montajeEjemplo } from '../src/modelo/ejemplos.mjs';
+import { conexionesValidas } from '../src/modelo/conexiones.mjs';
 
 test('la caída toca el suelo, reposa y no atraviesa la mesa', () => {
   const caida = new CaidaVertical();
@@ -24,4 +24,14 @@ test('un bloque separado forma otro cuerpo rígido', () => {
   const m = montajeEjemplo(EJEMPLOS[0]);
   m.conexiones.pop();
   assert.equal(new Set(conjuntosRigidos(m, conexionesValidas(m)).values()).size, 2);
+});
+test('sujetar una esquina hace girar el centro de masa hacia abajo', async () => {
+  const { Balanceo } = await import('../src/fisica/gravedad.mjs');
+  const balanceo = new Balanceo();
+  const primer = balanceo.avanzar([50, 0, 0], 1 / 60);
+  assert.ok(primer[2] < 0);
+  assert.equal(primer[0], 0);
+  assert.ok(primer[2] < -.01);
+  const quieto = new Balanceo();
+  assert.deepEqual(quieto.avanzar([0, -50, 0], 1 / 60), [0, 0, 0]);
 });

@@ -1,7 +1,7 @@
 __pycache__/
 *.pyc
 .cache/
-simulador_3d/interprete.js
+simulador_3d/generado/interprete.js
 datos_locales/
 !README.md
 !docs/
@@ -12,5 +12,5 @@ datos_locales/
 !tests/*.py
 !tests/datos/
 !tests/datos/**
-!simulador_3d/*.test.mjs
+!simulador_3d/tests/*.test.mjs
 simulador_3d/**/*.md

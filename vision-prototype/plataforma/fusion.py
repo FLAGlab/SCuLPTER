@@ -8,6 +8,7 @@ import numpy as np
 from adjacency import instrucciones as reconstruir_3d, separar, grafo, recorridos, repartir
 from plataforma.geometria_fusion import modelo, triangular, proyectar, nube, situar_en_nube, oculto
 from plataforma.vocabulario import OPERACIONES
+from clasificador_simbolos import aceptar_candidatos
 
 
 ARIDADES = {op: (1, 2) if op in {'CMP', 'ADD', 'SUB', 'MUL', 'DIV', 'MOD'} else (2, 2) if op in {'PUSH', 'MOV'} else (1, 1) for op in OPERACIONES}
@@ -15,10 +16,7 @@ CONFIGURACION = {'modo': 'fusion', 'paso_mm': 60., 'medido': False}
 
 
 def ganador(candidatos):
-    orden = sorted(candidatos, key=lambda c: c['puntaje'], reverse=True)
-    if not orden or orden[0]['puntaje'] <= .45 or (len(orden) > 1 and orden[0]['puntaje']-orden[1]['puntaje'] < .08):
-        return None
-    return orden[0]['lexema']
+    return aceptar_candidatos(candidatos)
 
 
 def asociar_unicos(costes, limite, margen):
@@ -90,6 +88,8 @@ class Fusion:
             self.desde = None
             self.ancla = {}
             self.ultimo_instante = None
+            self.vistas_ahora = set()
+            self.sin_localizar = 0
             self.resultado = {'id':'fusion', 'estado':'incompleta', 'estable':False, 'compatible':False, 'instrucciones':[], 'piezas':[], 'avisos':['Esperando observaciones de las cámaras.'], 'sin_localizar':0, 'camaras':[], 'desfase_ms':None, 'firma':'', 'conexiones_confirmadas':False}
             self.revision += 1
             self.resultado['revision'] = self.revision
@@ -275,7 +275,7 @@ class Fusion:
         votos = {ganador(o['candidatos']) for o in lecturas} - {None}
         tokens = {c['lexema'] for o in lecturas for c in o['candidatos']}
         pesos = [float(np.clip(o.get('calidad', 1.), .2, 1.)) for o in lecturas]
-        puntajes = [{'lexema': token, 'puntaje': round(sum(peso*next((max(0., c['puntaje']) for c in o['candidatos'] if c['lexema'] == token), 0.) for o, peso in zip(lecturas, pesos))/sum(pesos), 4)} for token in tokens]
+        puntajes = [{'lexema': token, 'puntaje': sum(peso*next((max(0., c['puntaje']) for c in o['candidatos'] if c['lexema'] == token), 0.) for o, peso in zip(lecturas, pesos))/sum(pesos)} for token in tokens]
         puntajes.sort(key=lambda c: c['puntaje'], reverse=True)
         pista['candidatos'] = puntajes[:4]
         elegido = ganador(puntajes) if len(votos) <= 1 else None

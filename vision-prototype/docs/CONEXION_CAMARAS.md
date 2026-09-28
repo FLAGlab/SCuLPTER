@@ -78,7 +78,7 @@ Las conexiones siguen siendo estimaciones por cercanía y dirección de parámet
 ## Verificación
 
 ```sh
-node --test simulador_3d/*.test.mjs
+node --test simulador_3d/tests/*.test.mjs
 python3 -m unittest discover -s tests -v
 ```
 

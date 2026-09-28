@@ -22,3 +22,16 @@ export function conjuntosRigidos(montaje, conexiones) {
   for (const c of conexiones) if (padres.has(c.origen) && padres.has(c.destino)) padres.set(raiz(c.destino), raiz(c.origen));
   return new Map([...padres.keys()].map(id => [id, raiz(id)]));
 }
+export class Balanceo {
+  constructor() { this.velocidad = [0, 0, 0]; }
+  avanzar(brazo, segundos) {
+    const dt = Math.min(Math.max(segundos, 0), .05);
+    const longitud = Math.max(20, Math.hypot(...brazo));
+    const impulso = 9810 / (longitud * longitud);
+    const amortiguacion = Math.exp(-2.5 * dt);
+    this.velocidad[0] = Math.max(-8, Math.min(8, (this.velocidad[0] + brazo[2] * impulso * dt) * amortiguacion));
+    this.velocidad[1] *= amortiguacion;
+    this.velocidad[2] = Math.max(-8, Math.min(8, (this.velocidad[2] - brazo[0] * impulso * dt) * amortiguacion));
+    return this.velocidad.map(v => v * dt);
+  }
+}

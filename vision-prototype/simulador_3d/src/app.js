@@ -1,17 +1,17 @@
 import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Ejecucion, mostrarPila } from "./ejecucion.mjs";
-import { dibujarEjecucion } from "./vista-ejecucion.js";
-import { simbolo, contenidoPila } from "./simbolos.js";
-import { posicionPosterior, unir, conexionesValidas, pendientesConexiones, ordenarMontaje } from "./conexiones.mjs";
-import { separarOperaciones, crearFichaOperacion, crearFichaOperando, prepararBloque, prepararConector, prepararTuerca, prepararCuna, LARGO_CONECTOR, posicionEncaje } from "./piezas.js";
-import { Montaje, OPERACIONES, SIN_LEER, parametroDesdeTexto } from "./montaje.mjs";
-import { crearEditor } from "./editor-parametro.js";
+import { Ejecucion, mostrarPila } from "./modelo/ejecucion.mjs";
+import { dibujarEjecucion } from "./interfaz/vista-ejecucion.js";
+import { simbolo, contenidoPila } from "./interfaz/simbolos.js";
+import { posicionPosterior, unir, conexionesValidas, pendientesConexiones, ordenarMontaje } from "./modelo/conexiones.mjs";
+import { separarOperaciones, crearFichaOperacion, crearFichaOperando, prepararBloque, prepararConector, prepararTuerca, prepararCuna, LARGO_CONECTOR, posicionEncaje } from "./escena/piezas.js";
+import { Montaje, OPERACIONES, SIN_LEER, parametroDesdeTexto } from "./modelo/montaje.mjs";
+import { crearEditor } from "./interfaz/editor-parametro.js";
 
-import { crearVistas } from "./vistas.js";
-import { CaidaVertical, conjuntosRigidos } from "./gravedad.mjs";
-import { montajeEjemplo } from "./ejemplos.mjs";
+import { crearVistas } from "./interfaz/vistas.js";
+import { Cadena } from "./fisica/cadena.mjs";
+import { montajeEjemplo } from "./modelo/ejemplos.mjs";
 
 const $ = id => document.getElementById(id);
 const ejecucion = new Ejecucion();
@@ -32,7 +32,7 @@ function validarPrograma(codigo) {
     if (solicitud !== revision) return;
     detenerMotor(); ejecucion.cargar(resultado);
     estadoEjecucion = { pendiente: false, mensaje: resultado.mensaje || "No se pudo interpretar el programa.", origen: origenPrograma };
-    reconstruirEscena(); reconstruirPanel();
+    if (!gravedadActiva) reconstruirEscena(); reconstruirPanel();
   };
   motor.onmessage = ({ data }) => { if (data.revision === solicitud) finalizar(data.resultado); };
   motor.onerror = () => finalizar({ valido: false, etapa: "motor", mensaje: "No se pudo cargar el intérprete. Revisa su compilación y recarga la página." });
@@ -173,6 +173,7 @@ function atenuar(objeto, bloqueId) {
 const marco = $("marco-seleccion"), etiquetaMarco = $("etiqueta-seleccion");
 const CAJA = new THREE.Box3(), ESQUINA = new THREE.Vector3();
 function dibujarSeleccion() {
+  if (gravedadActiva) { marco.hidden = true; return; }
   const idVisible = pagina === "ejecucion" ? bloqueSiguiente() : bloqueActivo;
   const malla = mallasBloques.get(idVisible);
   if (!malla || arrastre?.movido || nuevoArrastre?.movido) { marco.hidden = true; return; }
@@ -769,7 +770,8 @@ function mejorEncaje(id, evento) {
   return mejor;
 }
 canvas.addEventListener("pointerdown", e => {
-  if (e.button !== 0 || !listo || pagina !== "mesa" || gravedadActiva) return;
+  if (e.button !== 0 || !listo || pagina !== "mesa") return;
+  if (gravedadActiva) { tomarGravedad(e); return; }
   const hit = objetivo(e);
   if (hit?.piezaId) {
     manual(); seleccionado = hit.piezaId;
@@ -787,6 +789,7 @@ canvas.addEventListener("pointerdown", e => {
   } else if (hit?.bloqueId) { bloqueActivo = hit.bloqueId; seleccionado = null; reconstruirPanel(); }
 }, true);
 canvas.addEventListener("pointermove", e => {
+  if (sujecion) { moverGravedad(e); return; }
   if (!arrastre || arrastre.puntero !== e.pointerId) return;
   if (!arrastre.movido && Math.hypot(e.clientX - arrastre.inicio[0], e.clientY - arrastre.inicio[1]) < 4) return;
   if (!arrastre.movido) {
@@ -814,13 +817,14 @@ function terminarArrastre(cancelar = false) {
   actualizar();
   if (a.movido) aviso(cancelar ? "Movimiento cancelado." : p.union ? "Ficha encajada." : "Ficha suelta: no forma parte del programa hasta encajarla.");
 }
-canvas.addEventListener("pointerup", () => terminarArrastre());
-canvas.addEventListener("pointercancel", () => terminarArrastre(true));
-canvas.addEventListener("lostpointercapture", () => terminarArrastre(true));
+canvas.addEventListener("pointerup", e => { if (sujecion?.puntero === e.pointerId) soltarGravedad(); else terminarArrastre(); });
+canvas.addEventListener("pointercancel", e => { if (sujecion?.puntero === e.pointerId) soltarGravedad(); else terminarArrastre(true); });
+canvas.addEventListener("lostpointercapture", e => { if (sujecion?.puntero === e.pointerId) soltarGravedad(); else terminarArrastre(true); });
 window.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   const dialogo = $("editor-parametro");
   if (dialogo.open) { e.preventDefault(); dialogo.close(); return; }
+  if (sujecion) { e.preventDefault(); soltarGravedad(); }
   if (arrastre) { e.preventDefault(); terminarArrastre(true); }
   if (nuevoArrastre) { e.preventDefault(); terminarNuevo(true); }
 });
@@ -867,37 +871,134 @@ function conectarCamara() {
     catch (error) { aviso(`No se pudo reconstruir la lectura: ${error.message}`); }
   };
 }
-let gravedadActiva = false, cuerposGravedad = [], instanteGravedad = 0;
+let gravedadActiva = false, cuerposGravedad = [], instanteGravedad = 0, sujecion = null;
 function prepararGravedad() {
   cuerposGravedad = []; instanteGravedad = performance.now();
-  const uniones = conjuntosRigidos(montaje, conexionesValidas(montaje)), grupos = new Map();
+  const bloques = montaje.bloques.filter(b => !b.virtual);
+  const grupos = new Map(bloques.map(b => {
+    const grupo = new THREE.Group();
+    grupo.position.copy(extremo(b, ENTRADA));
+    objetos.add(grupo);
+    return [b.id, grupo];
+  }));
+  const gruposNuevos = new Set(grupos.values());
   for (const objeto of [...objetos.children]) {
+    if (objeto.isLine || objeto.userData.encaje) { objeto.visible = false; continue; }
+    if (gruposNuevos.has(objeto)) continue;
     const pieza = montaje.piezas.get(objeto.userData.piezaId);
     const bloque = objeto.userData.bloqueId || pieza?.union?.bloqueId;
-    const clave = bloque ? uniones.get(bloque) : objeto.uuid;
-    if (!grupos.has(clave)) { const grupo = new THREE.Group(); objetos.add(grupo); grupos.set(clave, grupo); }
-    grupos.get(clave).add(objeto);
+    if (grupos.has(bloque)) grupos.get(bloque).attach(objeto);
   }
-  for (const grupo of grupos.values()) {
-    const caja = new THREE.Box3().setFromObject(grupo);
-    if (caja.isEmpty()) continue;
-    const suelo = -caja.min.y;
-    const caida = new CaidaVertical(); grupo.position.y = suelo + caida.altura;
-    cuerposGravedad.push({ grupo, caida, suelo });
+  const sucesor = new Map(), destinos = new Set();
+  for (const conexion of conexionesValidas(montaje)) {
+    sucesor.set(conexion.origen, conexion.destino);
+    destinos.add(conexion.destino);
   }
+  const visitados = new Set();
+  for (const inicio of bloques.filter(b => !destinos.has(b.id)).concat(bloques)) {
+    if (visitados.has(inicio.id)) continue;
+    const secuencia = [];
+    let actual = inicio;
+    while (actual && !visitados.has(actual.id)) {
+      secuencia.push(actual); visitados.add(actual.id);
+      actual = montaje.bloque(sucesor.get(actual.id));
+    }
+    const puntos = secuencia.map(b => extremo(b, ENTRADA).toArray());
+    puntos.push(extremo(secuencia.at(-1), LARGO[secuencia.at(-1).capacidad]).toArray());
+    const cadena = new Cadena(puntos);
+    const tramos = secuencia.map((b, i) => ({ grupo: grupos.get(b.id), referencia: new THREE.Vector3().fromArray(puntos[i + 1]).sub(new THREE.Vector3().fromArray(puntos[i])) }));
+    const cuerpo = { cadena, tramos };
+    tramos.forEach((tramo, i) => { tramo.grupo.userData.cuerpo = cuerpo; tramo.grupo.userData.tramo = i; });
+    cuerposGravedad.push(cuerpo);
+  }
+}
+function colocarTramos(cuerpo) {
+  const { puntos } = cuerpo.cadena;
+  cuerpo.tramos.forEach((tramo, i) => {
+    const a = new THREE.Vector3().fromArray(puntos[i]);
+    const direccion = new THREE.Vector3().fromArray(puntos[i + 1]).sub(a);
+    tramo.grupo.position.copy(a);
+    if (direccion.lengthSq() > .0001) tramo.grupo.quaternion.setFromUnitVectors(tramo.referencia.clone().normalize(), direccion.normalize());
+  });
+}
+function avanzarGravedad(segundos) {
+  for (const cuerpo of cuerposGravedad) {
+    cuerpo.cadena.integrar(segundos);
+    for (let vuelta = 0; vuelta < 8; vuelta++) {
+      colocarTramos(cuerpo);
+      const ajustes = cuerpo.cadena.puntos.map(() => 0);
+      cuerpo.tramos.forEach((tramo, i) => {
+        const minimo = new THREE.Box3().setFromObject(tramo.grupo).min.y;
+        if (minimo < -.05) { ajustes[i] = Math.max(ajustes[i], .1 - minimo); ajustes[i + 1] = Math.max(ajustes[i + 1], .1 - minimo); }
+      });
+      if (!ajustes.some(Boolean)) break;
+      cuerpo.cadena.contactos(ajustes);
+      cuerpo.cadena.resolver(4);
+    }
+    colocarTramos(cuerpo);
+  }
+  if (sujecion) sujecion.marca.position.fromArray(sujecion.cuerpo.cadena.puntos[sujecion.indice]);
+}
+function tomarGravedad(e) {
+  rayo(e);
+  for (const hit of raycaster.intersectObjects(objetos.children, true)) {
+    let nodo = hit.object;
+    while (nodo && nodo !== objetos && !nodo.userData.cuerpo) nodo = nodo.parent;
+    const cuerpo = nodo?.userData.cuerpo;
+    if (!cuerpo) continue;
+    const tramo = nodo.userData.tramo;
+    const indice = hit.point.distanceTo(new THREE.Vector3().fromArray(cuerpo.cadena.puntos[tramo])) <= hit.point.distanceTo(new THREE.Vector3().fromArray(cuerpo.cadena.puntos[tramo + 1])) ? tramo : tramo + 1;
+    const extremoActual = new THREE.Vector3().fromArray(cuerpo.cadena.puntos[indice]);
+    const marca = new THREE.Mesh(new THREE.SphereGeometry(4, 12, 8), new THREE.MeshBasicMaterial({ color: 0x0d99ff }));
+    marca.position.copy(extremoActual); objetos.add(marca);
+    cuerpo.cadena.sujetar(indice, extremoActual.toArray());
+    const normal = camara.getWorldDirection(new THREE.Vector3()); normal.y = 0;
+    if (normal.lengthSq() < .0001) normal.set(0, 0, 1);
+    sujecion = { cuerpo, indice, marca, puntero: e.pointerId, plano: new THREE.Plane().setFromNormalAndCoplanarPoint(normal.normalize(), hit.point), offset: extremoActual.sub(hit.point) };
+    controles.enabled = false; canvas.setPointerCapture(e.pointerId);
+    document.body.classList.add('sujetando');
+    e.stopImmediatePropagation();
+    aviso('Levanta el extremo: cada bloque gira en su unión y se apoya sobre la mesa al soltarlo.');
+    return;
+  }
+}
+function moverGravedad(e) {
+  if (!sujecion || sujecion.puntero !== e.pointerId) return;
+  rayo(e);
+  const punto = raycaster.ray.intersectPlane(sujecion.plano, new THREE.Vector3());
+  if (!punto) return;
+  sujecion.cuerpo.cadena.mover(punto.add(sujecion.offset).toArray());
+}
+function soltarGravedad() {
+  if (!sujecion) return;
+  const { cuerpo, marca, puntero } = sujecion;
+  sujecion = null;
+  cuerpo.cadena.soltar();
+  objetos.remove(marca); marca.geometry.dispose(); marca.material.dispose();
+  instanteGravedad = performance.now();
+  controles.enabled = true;
+  if (canvas.hasPointerCapture(puntero)) canvas.releasePointerCapture(puntero);
+  document.body.classList.remove('sujetando');
+  aviso('La cadena cae y sus tramos se apoyan sobre el tablero.');
+}
+function repetirGravedad() {
+  if (sujecion) soltarGravedad();
+  for (const cuerpo of cuerposGravedad) { cuerpo.cadena.elevar(180); colocarTramos(cuerpo); }
+  instanteGravedad = performance.now();
 }
 function alternarGravedad(activa = !gravedadActiva) {
   if (!listo || arrastre || nuevoArrastre) return;
+  if (sujecion) soltarGravedad();
   gravedadActiva = activa; document.body.classList.toggle('modo-gravedad', activa);
   $('ver-gravedad').textContent = activa ? 'Salir de gravedad' : 'Ver con gravedad';
   $('ver-gravedad').setAttribute('aria-pressed', String(activa)); $('repetir-gravedad').hidden = !activa;
   if (activa) { vistas.detenerLectura(); $('camara-activa').checked = false; }
   reconstruirEscena();
   if (activa) encuadrar();
-  aviso(activa ? 'Gravedad vertical: cada conjunto encajado cae como una pieza rígida.' : 'Posiciones originales restauradas.');
+  aviso(activa ? 'Agarra un extremo del programa, levántalo y suéltalo para ver cómo cae cada tramo.' : 'Posiciones originales restauradas.');
 }
 $('ver-gravedad').onclick = () => alternarGravedad();
-$('repetir-gravedad').onclick = () => { if (gravedadActiva) { reconstruirEscena(); encuadrar(); } };
+$('repetir-gravedad').onclick = () => { if (gravedadActiva) repetirGravedad(); };
 let montajeGuardado = null;
 const vistas = crearVistas({
   navegar: cambiarPagina,
@@ -955,7 +1056,7 @@ async function iniciar() {
     controles.update();
     if (gravedadActiva) {
       const ahora = performance.now(), dt = (ahora - instanteGravedad) / 1000; instanteGravedad = ahora;
-      for (const cuerpo of cuerposGravedad) cuerpo.grupo.position.y = cuerpo.suelo + cuerpo.caida.avanzar(dt);
+      avanzarGravedad(dt);
     }
     // Suavizar el fantasma: seguir el puntero al instante se siente nervioso.
     if (nuevoArrastre?.fantasma && nuevoArrastre.destino) {

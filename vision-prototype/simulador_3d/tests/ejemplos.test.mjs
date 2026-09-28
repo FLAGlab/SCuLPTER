@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EJEMPLOS, montajeEjemplo } from './ejemplos.mjs';
-import { sculptEjecutar } from './interprete.js';
-import { pendientesConexiones } from './conexiones.mjs';
+import { EJEMPLOS, montajeEjemplo } from '../src/modelo/ejemplos.mjs';
+import { sculptEjecutar } from '../generado/interprete.js';
+import { pendientesConexiones } from '../src/modelo/conexiones.mjs';
 
 for (const ejemplo of EJEMPLOS) test(ejemplo.nombre, () => {
   const montaje = montajeEjemplo(ejemplo);

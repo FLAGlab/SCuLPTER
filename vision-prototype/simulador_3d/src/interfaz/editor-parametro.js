@@ -1,4 +1,4 @@
-import { validarParametro } from "./montaje.mjs";
+import { validarParametro } from "../modelo/montaje.mjs";
 
 export function crearEditor(alGuardar) {
   const dialogo = document.getElementById("editor-parametro");

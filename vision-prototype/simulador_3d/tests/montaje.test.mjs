@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Montaje, lexemaParametro, parametroDesdeTexto, SIN_LEER} from './montaje.mjs';
-import {sculptEjecutar} from './interprete.js';
+import {Montaje, lexemaParametro, parametroDesdeTexto, SIN_LEER} from '../src/modelo/montaje.mjs';
+import {sculptEjecutar} from '../generado/interprete.js';
 const etiqueta = texto => ({tipo:'etiqueta',texto,trazos:[]});
 test('un parámetro suelto no se ejecuta; retirar y volver a encajar conserva su identidad', () => {
   const m=new Montaje(), b=m.agregarBloque('PUSH'), a=m.agregarParametro(etiqueta('★')), n=m.agregarParametro(parametroDesdeTexto('2'));

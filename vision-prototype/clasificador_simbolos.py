@@ -101,15 +101,22 @@ def puntuar(recorte) -> list[tuple[str, float]]:
     return sorted(puntajes.items(), key=lambda par: par[1], reverse=True)
 
 
+def aceptar_candidatos(candidatos):
+    if not candidatos:
+        return None
+    orden = sorted(candidatos, key=lambda c: c["puntaje"] if isinstance(c, dict) else c[1], reverse=True)
+    primero = orden[0]
+    lexema = primero["lexema"] if isinstance(primero, dict) else primero[0]
+    puntaje = primero["puntaje"] if isinstance(primero, dict) else primero[1]
+    segundo = 0.0
+    if len(orden) > 1:
+        segundo = orden[1]["puntaje"] if isinstance(orden[1], dict) else orden[1][1]
+    return lexema if puntaje >= UMBRAL and puntaje - segundo >= MARGEN else None
+
+
 def reconocer_con_puntajes(recorte) -> tuple[str | None, list[tuple[str, float]]]:
     candidatos = puntuar(recorte)
-    if not candidatos:
-        return None, candidatos
-    lexema, puntaje = candidatos[0]
-    segundo = candidatos[1][1] if len(candidatos) > 1 else 0.0
-    if puntaje < UMBRAL or puntaje - segundo < MARGEN:
-        return None, candidatos
-    return lexema, candidatos
+    return aceptar_candidatos(candidatos), candidatos
 
 
 def reconocer(recorte) -> str | None:

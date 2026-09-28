@@ -77,7 +77,7 @@ class Vocabulario:
             return []
         with self.lock:
             valores = [(k, max(float(cv2.matchTemplate(normal, v, cv2.TM_CCOEFF_NORMED).max()) for v in variantes)) for k, variantes in self.plantillas.items()]
-        return [{"lexema": k, "nombre": self.nombres.get(k, k), "puntaje": round(v, 4)} for k, v in sorted(valores, key=lambda par: par[1], reverse=True)[:4]]
+        return [{"lexema": k, "nombre": self.nombres.get(k, k), "puntaje": v} for k, v in sorted(valores, key=lambda par: par[1], reverse=True)[:4]]
 
     def imagen(self, codificada):
         if not isinstance(codificada, str) or len(codificada) > 8_000_000:

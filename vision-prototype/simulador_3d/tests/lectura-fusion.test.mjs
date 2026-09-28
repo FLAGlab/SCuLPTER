@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { puedeAplicarLectura, codigoLectura, esEstadoActual } from './lectura-fusion.mjs';
+import { puedeAplicarLectura, codigoLectura, esEstadoActual } from '../src/vision/lectura-fusion.mjs';
 
 const lectura = {estable:true,compatible:true,instrucciones:[{token:'PUSH',operandos:['a','2']}]};
 

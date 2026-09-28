@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const base = 'vision-prototype/simulador_3d/';
-const recursos = ['index.html', 'estilos.css', 'fuentes/google-sans-flex-latin-full-normal.woff2', 'fuentes/roboto-mono-latin-400-normal.woff2', 'fuentes/roboto-mono-latin-500-normal.woff2', ...['bloque_1_param', 'bloque_2_param', 'parametro', 'conector', 'tuerca', 'cuna'].map(n => `modelos/${n}.stl`)];
+const recursos = ['index.html', 'src/app.js', 'estilos/estilos.css', 'fuentes/google-sans-flex-latin-full-normal.woff2', 'fuentes/roboto-mono-latin-400-normal.woff2', 'fuentes/roboto-mono-latin-500-normal.woff2', ...['bloque_1_param', 'bloque_2_param', 'parametro', 'conector', 'tuerca', 'cuna'].map(n => `modelos/${n}.stl`)];
 for (const recurso of recursos) if (!existsSync(root + base + recurso)) throw new Error(`Falta el recurso ${base + recurso}`);
 const fuentes = ['Tokens', 'AST', 'Lexer', 'Parser', 'Interpreter'].map(n => `src/main/scala/sculpter/${n}.scala`);
-const r = spawnSync('scala-cli', ['package', '--power', '--server=false', '--js', '--js-module-kind', 'es', ...fuentes, base + 'PuenteJS.scala', '-o', base + 'interprete.js', '--force'], { cwd: root, stdio: 'inherit' });
+mkdirSync(root + base + 'generado', { recursive: true });
+const r = spawnSync('scala-cli', ['package', '--power', '--server=false', '--js', '--js-module-kind', 'es', ...fuentes, base + 'scala/PuenteJS.scala', '-o', base + 'generado/interprete.js', '--force'], { cwd: root, stdio: 'inherit' });
 if (r.error) throw r.error;
 process.exitCode = r.status ?? 1;

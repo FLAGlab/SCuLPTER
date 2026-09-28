@@ -42,6 +42,21 @@ La publicación ejecutable exige evidencia reciente, una cadena completa y 0,8 s
 
 El intérprete valida el texto fuera del ciclo de captura. Sus resultados no resuelven ambigüedades visuales: un programa sintácticamente válido no demuestra una lectura correcta. Las conexiones se muestran como estimadas, nunca como encajes observados.
 
+## Ensayo con dos webcams reales
+
+Primero conecta las webcams, toma fotos de referencia de las fichas impresas en Símbolos, calibra los intrínsecos de cada cámara y regístralas con el mismo tablero inmóvil. Mide en milímetros la distancia entre centros de operaciones consecutivas y guárdala en Cámaras. El montaje debe permanecer fijo después del registro. Usa `herramientas/listar_camaras.py` para identificar los índices y desconecta las cámaras del servicio antes de grabar, pues la grabadora abrirá esos dispositivos directamente.
+
+Graba una sesión por situación: programa completo y quieto, parámetro oculto, mano moviendo fichas y símbolos repetidos. Escribe el programa real completo en `--esperado`; marca `--debe-ejecutar` solo cuando toda la escena está visible y quieta. Las imágenes y la calibración usada se guardan localmente en `datos_locales/`, fuera de Git.
+
+```sh
+python3 vision-prototype/herramientas/registrar_sesion.py --camara-a 0 --camara-b 1 --out vision-prototype/datos_locales/sesiones/completa --esperado 'PUSH a 2' --escena completa --debe-ejecutar
+python3 vision-prototype/herramientas/registrar_sesion.py --camara-a 0 --camara-b 1 --out vision-prototype/datos_locales/sesiones/occlusion --esperado 'PUSH a 2' --escena oclusion
+python3 vision-prototype/herramientas/evaluar_sesion.py --sesion vision-prototype/datos_locales/sesiones/completa --json vision-prototype/datos_locales/sesiones/completa/informe.json
+python3 vision-prototype/herramientas/evaluar_dataset.py --manifest vision-prototype/datos_locales/dataset/manifest.jsonl --datos vision-prototype/datos_locales
+```
+
+El informe separa confirmaciones correctas, confirmaciones incorrectas y lecturas pendientes. Mide mediana y percentil 95 de lectura, fusión y tiempo total por par de imágenes. Una confirmación incorrecta incluye cualquier ejecución durante una escena marcada como oculta o en movimiento. Esta medición permite decidir si conviene filtrar por geometría epipolar, reducir el trabajo de profundidad o acortar el tiempo de bloqueo. Las pruebas sintéticas comprueban el instrumento, pero no aportan tasas de acierto de fichas reales.
+
 ## Límites y comprobación física
 
 La detección todavía parte de regiones y plantillas de símbolos. No identifica caras mediante modelos del bloque, no reconoce manos y no mide automáticamente ranuras o conectores. Tampoco puede descubrir una operación o un parámetro que ninguna vista haya observado. La proyección de profundidad puede fallar por superficies reflectantes, resolución insuficiente o discontinuidades; en esos casos se necesita otra vista, mejor montaje o referencias de reconocimiento.
@@ -52,7 +67,7 @@ Las pruebas sintéticas cubren triangulación métrica, fuentes complementarias 
 
 ```sh
 python3 -m unittest discover -s tests -v
-node --test simulador_3d/*.test.mjs
+node --test simulador_3d/tests/*.test.mjs
 ```
 
 La prueba de navegador usa datos sintéticos en un servicio separado: reconstruir `PUSH a 2`, ejecutar hasta `a = [2]`, ocultar las lecturas y verificar la pausa, y recuperar el programa con operación y parámetros visibles en cámaras diferentes. No sustituye el ensayo con dispositivos reales.

@@ -1,4 +1,4 @@
-import { mostrarPila, mostrarValor } from "./ejecucion.mjs";
+import { mostrarPila, mostrarValor } from "../modelo/ejecucion.mjs";
 import { simbolo, contenidoPila } from "./simbolos.js";
 
 const $ = id => document.getElementById(id);

@@ -1,6 +1,6 @@
 """Mide el reconocimiento sobre un dataset anotado con capture_dataset.py.
 
-Para cada imagen del manifiesto corre la misma detección que reconstruir.py y
+Para cada imagen del manifiesto corre la misma lectura que el servicio de cámaras y
 compara con `expected`:
 
 - Por símbolo: verdaderos/falsos positivos y falsos negativos contando
@@ -16,7 +16,9 @@ compara con `expected`:
 import argparse
 import json
 import os
+import re
 import sys
+from pathlib import Path
 from collections import Counter, defaultdict
 
 import cv2
@@ -24,6 +26,10 @@ import cv2
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import reconstruir
+from plataforma.lectura import leer_cuadro
+from plataforma.vocabulario import Vocabulario
+
+RAIZ = Path(__file__).resolve().parents[1]
 
 
 def normalizar_programa(texto: str) -> list[str]:
@@ -32,7 +38,7 @@ def normalizar_programa(texto: str) -> list[str]:
 
 
 def tokens_de(lineas: list[str]) -> Counter:
-    return Counter(token for linea in lineas for token in linea.split())
+    return Counter(token for linea in lineas for token in re.findall(r"<sin leer>|\S+", linea))
 
 
 def leer_manifiesto(ruta: str, split: str | None, writer: str | None) -> list[dict]:
@@ -51,12 +57,20 @@ def leer_manifiesto(ruta: str, split: str | None, writer: str | None) -> list[di
     return filas
 
 
-def evaluar_imagen(ruta_imagen: str, esperado: str) -> dict:
+def evaluar_imagen(ruta_imagen: str, esperado: str, vocabulario=None, guardar_regiones=None) -> dict:
     cuadro = cv2.imread(ruta_imagen)
     if cuadro is None:
         return {"error": f"no se pudo leer {ruta_imagen}"}
 
-    detecciones, avisos = reconstruir.detectar(cuadro)
+    if vocabulario is None:
+        vocabulario = Vocabulario(RAIZ, RAIZ / 'datos_locales')
+    _, lecturas = leer_cuadro(cuadro, vocabulario)
+    if guardar_regiones:
+        carpeta = Path(guardar_regiones) / Path(ruta_imagen).stem
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for indice, lectura in enumerate(lecturas):
+            cv2.imwrite(str(carpeta / f"{indice:02d}_{lectura['token']}.png"), lectura['recorte'])
+    detecciones = [(lectura['token'], lectura['x'], lectura['y']) for lectura in lecturas]
     reconstruido = normalizar_programa(reconstruir.programa(detecciones))
     esperado_lineas = normalizar_programa(esperado)
 
@@ -76,7 +90,7 @@ def evaluar_imagen(ruta_imagen: str, esperado: str) -> dict:
         "programa_exacto": reconstruido == esperado_lineas,
         "lineas_acertadas": lineas_acertadas,
         "lineas_esperadas": len(esperado_lineas),
-        "regiones_rechazadas": len(avisos),
+        "regiones_rechazadas": sum(lectura["token"] == "<sin leer>" for lectura in lecturas),
     }
 
 
@@ -87,7 +101,9 @@ def _metricas(tp: int, fp: int, fn: int) -> dict:
     return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
 
-def evaluar(filas: list[dict], carpeta: str) -> dict:
+def evaluar(filas: list[dict], carpeta: str, vocabulario=None, guardar_regiones=None) -> dict:
+    if vocabulario is None:
+        vocabulario = Vocabulario(RAIZ, RAIZ / 'datos_locales')
     tp_total, fp_total, fn_total = Counter(), Counter(), Counter()
     confusiones = Counter()
     exactos = 0
@@ -96,7 +112,7 @@ def evaluar(filas: list[dict], carpeta: str) -> dict:
     errores = []
 
     for fila in filas:
-        resultado = evaluar_imagen(os.path.join(carpeta, fila["image"]), fila["expected"])
+        resultado = evaluar_imagen(os.path.join(carpeta, fila["image"]), fila["expected"], vocabulario, guardar_regiones)
         if "error" in resultado:
             errores.append(resultado["error"])
             continue
@@ -184,18 +200,19 @@ def principal() -> None:
     parser.add_argument("--split", choices=("train", "validation", "test"), help="evaluar solo este split")
     parser.add_argument("--writer", help="evaluar solo las imágenes de este autor")
     parser.add_argument("--json", metavar="SALIDA", help="guardar el informe completo como JSON")
-    parser.add_argument("--guardar-regiones", metavar="CARPETA", help="volcar las regiones detectadas (ver reconstruir.py)")
+    parser.add_argument("--guardar-regiones", metavar="CARPETA", help="volcar las regiones detectadas")
+    parser.add_argument("--datos", default=str(RAIZ / "datos_locales"), help="carpeta local con símbolos personalizados usada por el servicio")
     args = parser.parse_args()
 
-    if not reconstruir.clasif.hay_referencias():
-        sys.exit("referencias/ está vacía: no hay plantillas con qué reconocer")
-    reconstruir.VOLCADO = args.guardar_regiones
+    vocabulario = Vocabulario(RAIZ, args.datos)
+    if not vocabulario.plantillas:
+        sys.exit("No hay plantillas de símbolos para evaluar.")
 
     filas = leer_manifiesto(args.manifest, args.split, args.writer)
     if not filas:
         sys.exit("el manifiesto no tiene filas (o ninguna pasa los filtros)")
 
-    informe = evaluar(filas, os.path.dirname(os.path.abspath(args.manifest)))
+    informe = evaluar(filas, os.path.dirname(os.path.abspath(args.manifest)), vocabulario, args.guardar_regiones)
     imprimir(informe)
     if args.json:
         with open(args.json, "w", encoding="utf-8") as archivo:
