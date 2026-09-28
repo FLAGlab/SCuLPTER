@@ -2,6 +2,8 @@
 
 Este prototipo recibe imágenes de cámaras, reconstruye un programa físico y lo muestra en el simulador. El servicio comparte observaciones de varias cámaras calibradas y mantiene el estado de las fichas durante el montaje. La validación del programa se hace con el intérprete existente.
 
+La carpeta `docs/` es documentación de trabajo y no se versiona: existe en el clon local, no en el repositorio.
+
 ## Dónde está cada cosa
 
 | Ruta | Función |
@@ -12,14 +14,14 @@ Este prototipo recibe imágenes de cámaras, reconstruye un programa físico y l
 | `clasificador_simbolos.py`, `simbolos.json`, `referencias/` | Lectura de símbolos y fotos de referencia |
 | `herramientas/` | Captura, diagnóstico y evaluación de imágenes |
 | `tests/datos/` | Escenas y puntos de prueba reproducibles |
-| `docs/` | Montajes, conexión de cámaras, fusión y documentación técnica |
+| `docs/` | Montajes, cámaras, fusión y guías de ensayo; local, no se versiona |
 | `datos_locales/` | Capturas y datos generados en esta máquina; se ignoran en Git |
 
 ## Preparar el primer ensayo
 
 Todavía no se ha leído ningún programa físico. Las 12 referencias de símbolos son **renders**
 recortados de `public/imgs/Renders`, marcados con `origen: render`; ninguna procede de una
-ficha impresa. El orden de trabajo está en [ENSAYO_DOS_WEBCAMS.md](docs/ENSAYO_DOS_WEBCAMS.md).
+ficha impresa. El orden de trabajo está en `docs/ENSAYO_DOS_WEBCAMS.md`.
 
 ```bash
 python3 herramientas/auditar_vocabulario.py --programa todos
@@ -28,8 +30,8 @@ python3 herramientas/auditar_vocabulario.py --programa todos
 Indica, por programa, qué símbolos están declarados, cuáles tienen referencia utilizable,
 cuáles son provisionales y cuáles hay que fotografiar. La página Símbolos muestra lo mismo y
 etiqueta cada tarjeta como «ficha real» o «render». Para capturar:
-[CAPTURA_REFERENCIAS.md](docs/CAPTURA_REFERENCIAS.md). Para medir el paso de la cadena, que son
-dos medidas y no un promedio: [MEDIR_PASO.md](docs/MEDIR_PASO.md).
+`docs/CAPTURA_REFERENCIAS.md`. Para medir el paso de la cadena, que son
+dos medidas y no un promedio: `docs/MEDIR_PASO.md`.
 
 ## Quién decide cada veredicto
 
@@ -52,7 +54,7 @@ python3 -m pip install -r vision-prototype/requirements.txt
 python3 vision-prototype/servicio.py
 ```
 
-Luego abre la dirección local que muestra el servicio. Para el simulador sin cámaras, consulta [su guía](simulador_3d/README.md). La lista de fuentes y la configuración están en [Conexión de cámaras](docs/CONEXION_CAMARAS.md); la arquitectura de RealSense, Kinect y webcams está en [Montajes](docs/MONTAJES.md). La política para combinar vistas y tratar oclusiones se describe en [Fusión de cámaras](docs/FUSION_CAMARAS.md).
+Luego abre la dirección local que muestra el servicio. Para el simulador sin cámaras, consulta [su guía](simulador_3d/README.md). La lista de fuentes y la configuración están en `docs/CONEXION_CAMARAS.md`; la arquitectura de RealSense, Kinect y webcams está en `docs/MONTAJES.md`. La política para combinar vistas y tratar oclusiones se describe en `docs/FUSION_CAMARAS.md`.
 
 ## Verificar
 
@@ -63,4 +65,4 @@ node --test vision-prototype/simulador_3d/tests/*.test.mjs
 
 El recorrido de la página Mesa se comprueba en un navegador real con `npm run test:mesa`. Queda fuera de `npm test` porque abre Chromium y tarda unos veinte segundos. La primera vez en una máquina nueva hay que descargar el navegador con `npx playwright install chromium`. Las capturas quedan en `simulador_3d/capturas/` y no se versionan.
 
-La [guía de reconstrucción clásica](docs/reconstruccion-clasica.md) conserva los comandos para captura de referencias, evaluación del reconocedor, calibración estéreo y uso de los puntos sintéticos. Las herramientas se ejecutan desde `vision-prototype/herramientas/`.
+La guía `docs/reconstruccion-clasica.md` conserva los comandos para captura de referencias, evaluación del reconocedor, calibración estéreo y uso de los puntos sintéticos. Las herramientas se ejecutan desde `vision-prototype/herramientas/`.

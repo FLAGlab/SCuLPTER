@@ -14,6 +14,5 @@ datos_locales/
 !tests/datos/**
 !simulador_3d/tests/*.test.mjs
 simulador_3d/**/*.md
-
-# Capturas de verificación del simulador
 simulador_3d/capturas/
+docs/
