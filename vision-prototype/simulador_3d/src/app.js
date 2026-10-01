@@ -56,7 +56,7 @@ function cambiarPagina(destino) {
   document.body.classList.toggle("modo-vistas", !["mesa", "ejecucion"].includes(pagina));
   vistas.mostrar(pagina);
   for (const id of ["panel-ejecucion", "pilas-ejecucion", "barra-ejecucion"]) $(id).hidden = pagina !== "ejecucion";
-  for (const nombre of ["mesa", "ejecucion", "ejemplos", "camaras", "calibracion", "simbolos", "piezas"]) {
+  for (const nombre of ["mesa", "ejecucion", "ejemplos", "gemelo", "camaras", "calibracion", "simbolos", "piezas"]) {
     const boton = $("pagina-" + nombre); boton.classList.toggle("on", nombre === pagina);
     boton.querySelector(".marca").textContent = nombre === pagina ? "✓" : "";
     boton.setAttribute("aria-current", nombre === pagina ? "page" : "false");
@@ -67,7 +67,7 @@ function cambiarPagina(destino) {
 }
 $("pagina-mesa").onclick = () => cambiarPagina("mesa");
 $("pagina-ejecucion").onclick = () => cambiarPagina("ejecucion");
-for (const nombre of ["ejemplos", "camaras", "calibracion", "simbolos", "piezas"]) $("pagina-" + nombre).onclick = () => cambiarPagina(nombre);
+for (const nombre of ["ejemplos", "gemelo", "camaras", "calibracion", "simbolos", "piezas"]) $("pagina-" + nombre).onclick = () => cambiarPagina(nombre);
 const ACCIONES = { reiniciar: "reiniciar", atras: "atrás", siguiente: "siguiente", todo: "ejecutar todo" };
 for (const [id, accion] of [["ej-reiniciar", "reiniciar"], ["ej-atras", "atras"], ["ej-siguiente", "siguiente"], ["ej-todo", "todo"]]) {
   $(id).onclick = () => {

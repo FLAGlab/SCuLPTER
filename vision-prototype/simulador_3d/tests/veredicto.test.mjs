@@ -127,9 +127,9 @@ test('la tabla de aridad del montaje coincide con el analizador de Scala', () =>
 });
 
 test('la interfaz avisa cuando la comprobación es del puente y no del lenguaje', () => {
-  const salto = veredicto(hechos({ resultado: sculptEjecutar('PUSH a 1\nJMP -100\n') }));
-  assert.equal(salto.clase, 'fallo');
-  assert.match(salto.detalle, /Lo comprueba el puente del simulador, no el intérprete\.$/);
+  const salto = veredicto(hechos({ resultado: sculptEjecutar('JMP 0\n', 25) }));
+  assert.equal(salto.clase, 'limite');
+  assert.match(salto.detalle, /límite/);
   const propio = veredicto(hechos({ resultado: sculptEjecutar('PUSH a nil\nADD a 2\n') }));
   assert.equal(propio.clase, 'fallo');
   assert.doesNotMatch(propio.detalle, /puente/, 'un error del lenguaje no se atribuye al puente');
@@ -143,12 +143,14 @@ test('el resumen final omite las pilas que quedan vacías', () => {
   assert.equal(resumenFinal(sculptEjecutar('PUSH a 1\nPOP a\n'), new Map()), 'todas las pilas quedan vacías');
 });
 
-test('un salto fuera del programa nombra la instrucción que saltó', () => {
+test('un salto fuera del programa lo rechaza el lenguaje y nombra la instrucción', () => {
   const r = sculptEjecutar('PUSH a 1\nJMP -100\n');
   assert.equal(r.valido, false);
   assert.equal(r.etapa, 'runtime');
+  assert.equal(r.decide, 'lenguaje');
   assert.equal(r.error.instruccion, 1);
-  assert.equal(r.mensaje, 'El salto sale del programa.');
+  assert.match(r.mensaje, /Invalid instruction index/);
+  assert.equal(r.error.fueraDelPrograma, true, 'el puente señala la instrucción que saltó, no el índice inválido');
   const e = new Ejecucion(); e.cargar(r); e.todo();
   assert.deepEqual(e.actual.pilas.a, [1]);
   assert.equal(veredicto(hechos({ resultado: r })).clase, 'fallo');

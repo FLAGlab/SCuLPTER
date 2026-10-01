@@ -5,7 +5,7 @@ class Interpreter:
   private var stacks: Map[String, List[Option[Double]]] =
     Map().withDefaultValue(List())
 
-  private var history: List[Map[String, List[Option[Double]]]] = List()
+  private var history: List[(Map[String, List[Option[Double]]], Int, Boolean)] = List()
 
   private var currentStatement: Int = 0
 
@@ -24,12 +24,22 @@ class Interpreter:
     if (currentStatement >= program.statements.length)
       return false
 
+    if (currentStatement < 0)
+      throw new RuntimeException(s"Invalid instruction index: $currentStatement")
+
+    val before = (stacks, currentStatement, skippedInstruction)
     skippedInstruction = false
-
-    history = history :+ stacks
-
-    execute(program.statements(currentStatement))
-    currentStatement += 1
+    try {
+      execute(program.statements(currentStatement))
+      currentStatement += 1
+      history = before :: history
+    } catch {
+      case e: RuntimeException =>
+        stacks = before._1
+        currentStatement = before._2
+        skippedInstruction = before._3
+        throw e
+    }
 
     true
 
@@ -37,9 +47,11 @@ class Interpreter:
     if (history.isEmpty)
       return false
 
-    stacks = history.last
-    history = history.dropRight(1)
-    currentStatement -= 1
+    val before = history.head
+    stacks = before._1
+    currentStatement = before._2
+    skippedInstruction = before._3
+    history = history.tail
 
     true
 

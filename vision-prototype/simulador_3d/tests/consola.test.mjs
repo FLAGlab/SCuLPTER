@@ -61,9 +61,9 @@ test('cada respuesta de Scala se registra con su etapa real', () => {
 
 test('lo que decide el puente no se atribuye al lenguaje', () => {
   const salto = sculptEjecutar('PUSH a 1\nJMP -100\n');
-  assert.equal(salto.decide, 'puente');
-  assert.equal(salto.error.decide, 'puente');
-  assert.equal(lineasDeResultado(salto)[0].origen, 'puente');
+  assert.equal(salto.decide, 'lenguaje', 'el índice negativo lo rechaza Interpreter.scala');
+  assert.equal(salto.error.decide, 'lenguaje');
+  assert.equal(lineasDeResultado(salto)[0].origen, 'scala');
   const limite = sculptEjecutar('JMP 0\n', 25);
   assert.equal(limite.decide, 'puente');
   assert.equal(lineasDeResultado(limite)[0].origen, 'puente');
@@ -125,7 +125,7 @@ test('todo origen registrado pertenece al vocabulario declarado', () => {
   c.escribir(lineaPeticion('PUSH a 1', 2000));
   c.escribir(lineaDeVeredicto(veredicto({ bloques: 1, pendientes: ['falta algo'] })));
   c.todas(lineasDeResultado(sculptEjecutar('PUSH a 1\n')));
-  c.todas(lineasDeResultado(sculptEjecutar('PUSH a 1\nJMP -9\n')));
+  c.todas(lineasDeResultado(sculptEjecutar('JMP 0\n', 25)));
   c.todas(lineasDeResultado({ valido: false, etapa: 'tiempo', mensaje: 'lento' }));
   const e = new Ejecucion(); e.cargar(sculptEjecutar('PUSH a 1\n'));
   c.escribir(lineaDeNavegacion(e.siguiente(), programa('PUSH a 1'), 'siguiente'));

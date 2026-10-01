@@ -52,6 +52,48 @@ def puede_ejecutar(resultado):
     return True
 
 
+def componentes(enlaces):
+    vistos, grupos = set(), []
+    for inicio in enlaces:
+        if inicio in vistos:
+            continue
+        pila, grupo = [inicio], []
+        while pila:
+            actual = pila.pop()
+            if actual in vistos:
+                continue
+            vistos.add(actual)
+            grupo.append(actual)
+            pila.extend(v for v in enlaces[actual] if v not in vistos)
+        grupos.append(sorted(grupo))
+    return grupos
+
+
+def diagnosticar_grafo(operaciones, enlaces):
+    grados = {i: len(v) for i, v in enlaces.items()}
+    grupos = componentes(enlaces)
+    problemas = []
+    if len(grupos) > 1:
+        tamanos = ', '.join(str(len(g)) for g in grupos)
+        problemas.append(f'Hay {len(grupos)} grupos de bloques sin unión entre sí ({tamanos} bloques). '
+                         'Si son montajes distintos, sepáralos; si deberían ir unidos, revisa las conexiones.')
+    ramificados = [i for i, g in grados.items() if g > 2]
+    if ramificados:
+        detalle = '; '.join(f'{operaciones[i][0]} con {grados[i]} vecinos' for i in ramificados)
+        problemas.append(f'Confluyen más de dos bloques en un punto ({detalle}). Puede ser un conector en T, '
+                         'que el lenguaje admite para unir dos caminos en uno, pero la distancia entre bloques '
+                         'no dice cuál rama entra y cuál sale. La lectura queda pendiente.')
+    sueltos = [i for i, g in grados.items() if g == 0]
+    if sueltos and len(operaciones) > 1:
+        problemas.append(f'{len(sueltos)} bloque' + ('' if len(sueltos) == 1 else 's') +
+                         ' sin ninguna unión a la cadena.')
+    if not problemas and list(grados.values()).count(1) != 2:
+        problemas.append('El recorrido se cierra sobre sí mismo o no tiene extremos claros. '
+                         'Un ciclo físico es válido en el lenguaje, pero sin evidencia de por dónde empieza '
+                         'la lectura queda pendiente.')
+    return problemas
+
+
 def pasos_medidos(config):
     return pasos_admisibles([config.get('paso_mm'), config.get('paso_2_mm')])
 
@@ -65,8 +107,10 @@ def reconstruir(piezas, paso):
     operaciones, parametros, _ = separar(puntos)
     enlaces = grafo(operaciones, paso)
     grados = [len(v) for v in enlaces.values()]
-    if len(ops) > 1 and (any(g == 0 or g > 2 for g in grados) or grados.count(1) != 2):
-        return [], ['El orden de los bloques es ambiguo o hay conjuntos separados. Revisa el paso medido y las conexiones.']
+    if len(ops) > 1:
+        diagnostico = diagnosticar_grafo(operaciones, enlaces)
+        if diagnostico:
+            return [], diagnostico
     todos = recorridos(enlaces)
     coherentes = recorridos_coherentes(operaciones, todos, paso)
     if not coherentes:
@@ -319,10 +363,16 @@ class Fusion:
         votos = {ganador(o['candidatos']) for o in lecturas} - {None}
         tokens = {c['lexema'] for o in lecturas for c in o['candidatos']}
         pesos = [float(np.clip(o.get('calidad', 1.), .2, 1.)) for o in lecturas]
-        puntajes = [{'lexema': token, 'puntaje': sum(peso*next((max(0., c['puntaje']) for c in o['candidatos'] if c['lexema'] == token), 0.) for o, peso in zip(lecturas, pesos))/sum(pesos)} for token in tokens]
+        puntajes = []
+        for token in tokens:
+            vistos = [(peso, next((max(0., c['puntaje']) for c in o['candidatos'] if c['lexema'] == token), None))
+                      for o, peso in zip(lecturas, pesos)]
+            aportan = [(peso, valor) for peso, valor in vistos if valor is not None]
+            puntajes.append({'lexema': token, 'camaras': len(aportan),
+                             'puntaje': sum(peso*valor for peso, valor in aportan)/sum(peso for peso, _ in aportan)})
         puntajes.sort(key=lambda c: c['puntaje'], reverse=True)
         pista['candidatos'] = puntajes[:4]
-        elegido = ganador(puntajes) if len(votos) <= 1 else None
+        elegido = next(iter(votos)) if len(votos) == 1 else None
         pista['estado'] = 'confirmada' if elegido else 'ambigua'
         if elegido:
             pista['lexema'] = elegido

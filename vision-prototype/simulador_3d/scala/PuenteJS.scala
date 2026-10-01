@@ -22,6 +22,7 @@ object PuenteJS {
       nombre -> (js.Array(valores.map(v => v.fold[js.Any](null)(n => n.asInstanceOf[js.Any]))*): js.Any)
     }*)
     def dentro(pc: Int): Boolean = pc >= 0 && pc < programa.statements.length
+    def continuar(): Boolean = interprete.getCurrentStatement() < programa.statements.length
     def siguiente(): js.Any = {
       val pc = interprete.getCurrentStatement()
       if (dentro(pc)) pc.asInstanceOf[js.Any] else null
@@ -30,10 +31,10 @@ object PuenteJS {
       js.Dynamic.literal(valido = valido, etapa = etapa, decide = decide, mensaje = mensaje, pasos = pasos, traza = traza,
         completa = etapa == "ok", limite = limite, error = error, ordenPilas = "tope-primero")
     traza.push(js.Dynamic.literal(paso = 0, instruccion = null, siguiente = siguiente(), pilas = pilas(), omitida = null))
-    var ultima = -1
-    while (siguiente() != null && pasos.length < limite) {
+    var ultimaValida = 0
+    while (continuar() && pasos.length < limite) {
       val pc = interprete.getCurrentStatement()
-      ultima = pc
+      if (dentro(pc)) ultimaValida = pc
       try {
         interprete.stepForward()
         val estado = pilas()
@@ -42,15 +43,13 @@ object PuenteJS {
           omitida = (if (interprete.didSkipInstruction()) (pc + 1).asInstanceOf[js.Any] else null)))
       } catch {
         case e: RuntimeException =>
+          val donde = if (dentro(pc)) pc else ultimaValida
           return resultado(false, "runtime", "lenguaje", e.getMessage,
-            js.Dynamic.literal(instruccion = pc, mensaje = e.getMessage, decide = "lenguaje"))
+            js.Dynamic.literal(instruccion = donde, mensaje = e.getMessage, decide = "lenguaje",
+              fueraDelPrograma = !dentro(pc)))
       }
     }
-    if (interprete.getCurrentStatement() < 0) {
-      val fuera = "El salto sale del programa."
-      resultado(false, "runtime", "puente", fuera, js.Dynamic.literal(instruccion = ultima, mensaje = fuera, decide = "puente"))
-    }
-    else if (siguiente() != null) resultado(true, "limite", "puente",
+    if (siguiente() != null) resultado(true, "limite", "puente",
       s"Se alcanzó el límite de $limite pasos. El programa puede contener un ciclo.")
     else resultado(true, "ok", "lenguaje")
   }

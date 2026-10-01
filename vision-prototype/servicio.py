@@ -5,12 +5,20 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote, parse_qs
 
 from plataforma.estado import Estado
+from plataforma.gemelo import Gemelo
 from plataforma.vocabulario import PROGRAMAS
 
 RAIZ = Path(__file__).resolve().parent
 
 
 def crear_handler(estado):
+    perezoso = {}
+
+    def gemelo():
+        if 'gemelo' not in perezoso:
+            perezoso['gemelo'] = Gemelo(estado.raiz, estado.datos / 'virtual')
+        return perezoso['gemelo']
+
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(RAIZ / 'simulador_3d'), **kwargs)
@@ -57,6 +65,8 @@ def crear_handler(estado):
                 elif ruta == '/api/simbolos':
                     with estado.vocabulario.lock:
                         self.enviar(estado.vocabulario.listar())
+                elif ruta == '/api/gemelo':
+                    self.enviar(gemelo().estado())
                 elif ruta == '/api/simbolos/ensayo':
                     nombre = parse_qs(urlparse(self.path).query).get('programa', ['minimo'])[0]
                     if nombre not in PROGRAMAS:
@@ -99,6 +109,25 @@ def crear_handler(estado):
                     resultado = {'lexema': estado.vocabulario.guardar(datos)}
                 elif ruta == '/api/simbolos/probar':
                     resultado = {'candidatos': estado.vocabulario.puntuar(estado.vocabulario.imagen(datos['imagen']))}
+                elif ruta.startswith('/api/gemelo/'):
+                    accion = ruta.rsplit('/', 1)[-1]
+                    g = gemelo()
+                    if accion == 'cargar':
+                        resultado = g.cargar(datos.get('escena', 'completa'))
+                    elif accion == 'paso':
+                        resultado = g.avanzar(int(datos.get('incremento', 1)))
+                    elif accion == 'reiniciar':
+                        resultado = g.reiniciar()
+                    elif accion == 'mover':
+                        resultado = g.mover(datos['id'], datos.get('centro'), datos.get('objetivo'), datos.get('fov'))
+                    elif accion == 'anadir':
+                        resultado = g.anadir(str(datos['id'])[:40], datos.get('nombre'))
+                    elif accion == 'quitar':
+                        resultado = g.quitar(datos['id'])
+                    elif accion == 'guardar':
+                        resultado = g.guardar(estado.datos / 'camaras_virtuales.json')
+                    else:
+                        raise ValueError('Acción desconocida.')
                 elif ruta.startswith('/api/camaras/'):
                     resultado = estado.accion(ruta.rsplit('/', 1)[-1], datos)
                 else:

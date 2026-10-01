@@ -15,4 +15,6 @@ datos_locales/
 !simulador_3d/tests/*.test.mjs
 simulador_3d/**/*.md
 simulador_3d/capturas/
-docs/
+docs/alcance.*
+docs/grafo-conceptos.html
+

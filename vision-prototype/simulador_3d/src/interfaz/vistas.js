@@ -7,6 +7,7 @@ import { EJEMPLOS, montajeEjemplo } from '../modelo/ejemplos.mjs';
 import { puedeAplicarLectura, codigoLectura, esEstadoActual } from '../vision/lectura-fusion.mjs';
 import { veredicto } from '../modelo/ejecucion.mjs';
 import { procedencia } from '../modelo/consola.mjs';
+import { crearEscenaGemelo } from '../vision/escena-gemelo.js';
 import { catalogoCamaras } from '../vision/catalogo-camaras.mjs';
 
 const escapar = valor => String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -34,6 +35,19 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   raiz.innerHTML = `
     <div id="vistas-lienzo">
       <section data-vista="ejemplos" hidden><div class="frame-label" id="ejemplo-nombre"></div><div class="frame" id="ejemplo-plano"></div><div class="frame-label">Texto SCuLPT</div><pre class="frame code" id="ejemplo-codigo"></pre></section>
+      <section data-vista="gemelo" hidden>
+        <div class="frame-label" id="gemelo-titulo">Gemelo digital</div>
+        <div class="gemelo-espacio">
+          <div class="gemelo-mesa"><div class="frame" id="gemelo-escena3d" aria-label="Mesa con las cámaras virtuales"></div><p class="nota">Arrastra una cámara para moverla. Gira la vista con el ratón: la cámara de inspección no altera las virtuales.</p></div>
+          <div class="gemelo-monitores">
+            <div class="frame-label" id="gemelo-monitor-titulo">Monitor</div>
+            <div class="frame" id="gemelo-monitor"></div>
+            <div class="frame-label">Otras cámaras</div>
+            <div class="frame" id="gemelo-otras"></div>
+          </div>
+        </div>
+        <div class="frame-label">Lecturas, fusión y programa candidato</div><div class="frame" id="gemelo-conjunto"></div>
+      </section>
       <section data-vista="camaras" hidden><div id="mapa-camaras"></div><p id="camaras-vacio" class="canvas-note">Montaje de referencia. Añade tus cámaras desde el panel derecho para registrar sus posiciones y ver las imágenes reales.</p><div id="camaras-lista"></div></section>
       <section data-vista="calibracion" hidden><div class="frame-label">Captura actual</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
       <section data-vista="simbolos" hidden><div class="frame-label">Preparación del ensayo</div><div class="frame" id="ensayo-vocabulario"></div><div id="simbolos-lista"></div></section>
@@ -53,6 +67,12 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
         ${seccion('Capturas', '<p id="cal-estado"></p><div class="acciones"><button class="accion" id="cal-capturar">Capturar tablero</button><button class="accion primaria" id="cal-calcular">Calcular</button></div><p class="nota">Al menos 15 vistas distintas, con el tablero en varios ángulos y posiciones.</p>')}
         ${seccion('Error de reproyección', '<div id="cal-error"></div><p class="nota">La calibración es buena por debajo de 1 px. Repite el registro si se mueve una cámara.</p>')}
         ${seccion('Posición común', '<button class="accion" id="cal-registrar">Registrar cámaras</button><p class="nota">El mismo tablero inmóvil debe verse en todas las cámaras conectadas, con igual origen y orientación.</p><div id="cal-resultados"></div>')}
+      </div>
+      <div data-prop="gemelo" hidden>
+        ${seccion('Escena', '<select class="fld" id="gemelo-escena"></select><p class="nota" id="gemelo-descripcion"></p><div class="acciones"><button class="accion" id="gemelo-reiniciar">Reiniciar</button><button class="accion" id="gemelo-atras">Paso atrás</button><button class="accion primaria" id="gemelo-paso">Siguiente paso</button></div><label class="toggle-row">Reproducir el armado<input type="checkbox" id="gemelo-reproducir"><span class="toggle"></span></label><p class="nota" id="gemelo-paso-actual"></p>')}
+        ${seccion('Cámara seleccionada', '<select class="fld" id="gemelo-camara"></select><div id="gemelo-pose"></div><div class="acciones"><button class="accion" id="gemelo-anadir">Añadir cámara</button><button class="accion" id="gemelo-quitar">Quitar</button><button class="accion" id="gemelo-guardar">Guardar configuración</button></div>')}
+        ${seccion('Unión seleccionada', '<div id="gemelo-union"></div>')}
+        ${seccion('Intérprete', '<div id="gemelo-scala"></div><p class="nota">La validez la decide Scala sobre el programa candidato. Es independiente de la certeza de la lectura visual.</p>')}
       </div>
       <div data-prop="simbolos" hidden>
         <form id="simbolo-form">${seccion('Símbolo', `<div id="simbolo-grande" class="big-glyph"></div>${propiedad('Nombre','<input class="fld mono" name="nombre" maxlength="80" placeholder="Nombre del dibujo" required>')}${propiedad('Tipo','<select class="fld" name="tipo"><option value="pila">Etiqueta de pila</option><option value="literal">Número o nil</option><option value="operacion">Operación</option></select>')}<button class="accion" type="button" id="simbolo-nuevo">Nuevo símbolo</button>`)}
@@ -311,6 +331,192 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       caja.innerHTML = `<p class="nota errc">No se pudo consultar la preparación: ${escapar(error.message)}</p>`;
     }
   }
+  const PROCEDENCIA = {
+    coincidencia_independiente: ['Coincidencia independiente', 'okc', 'Dos o más cámaras la sitúan y la leen igual.'],
+    observacion_unica: ['Observación única', 'avisoc', 'Una sola cámara la sostiene; nadie la desmiente, pero nadie la corrobora.'],
+    inferencia_geometrica: ['Inferencia geométrica', 'avisoc', 'Su posición sale de la nube de profundidad, no de dos vistas.'],
+    ambigua: ['Ambigua', 'errc', 'Las lecturas no coinciden entre sí.'],
+    oculta: ['Oculta comprobada', 'errc', 'La profundidad confirma que algo la tapa.'],
+    sin_informacion: ['Sin información', 'errc', 'Ninguna cámara la observó en este paso.'],
+  };
+  let gemeloUnion = null, gemeloEstado = null, gemeloCamara = null, gemeloMotor = null, gemeloFirma = '', gemeloVeredicto = null, gemeloReloj = null, escena3d = null;
+
+  function vistaDe(id) {
+    return gemeloEstado?.camaras.find(c => c.id === id) ?? null;
+  }
+
+  const PUERTOS = {
+    vastago_plano: 'entrada por el extremo plano del vástago',
+    vastago_esferico: 'salida por el extremo esférico',
+    rama: 'entrada por la rama',
+  };
+
+  function pintarUnion() {
+    const caja = $('gemelo-union');
+    if (!caja) return;
+    const t = gemeloUnion;
+    if (!t) { caja.innerHTML = '<p class="nota">Toca una unión o una T en la mesa para ver sus puertos.</p>'; return; }
+    if (t.ficha) {
+      const pieza = gemeloEstado?.fusion.piezas.find(p => p.id === t.ficha);
+      caja.innerHTML = pieza
+        ? `<div class="prop"><span class="lbl">Ficha</span><div class="fld mono">${escapar(pieza.lexema)}</div></div>
+           <p class="nota">${escapar((PROCEDENCIA[pieza.procedencia] || ['', '', ''])[2] || '')}</p>`
+        : '<p class="nota">Esa ficha todavía no la ha localizado ninguna cámara.</p>';
+      return;
+    }
+    const u = t.union;
+    if (u.tipo === 'te') {
+      caja.innerHTML = `<div class="prop"><span class="lbl">Unión</span><div class="fld">Conector en T</div></div>
+        <div class="ensayo-lista">${(u.puertos || []).map(p => `<span class="ensayo-item">${escapar(PUERTOS[p] || p)}</span>`).join('')}</div>
+        <p class="nota errc">Estado: sin resolver. El lenguaje admite que una T una dos caminos en uno, pero la distancia entre bloques no dice cuál rama entra y cuál sale, así que la lectura queda pendiente.</p>`;
+      return;
+    }
+    caja.innerHTML = `<div class="prop"><span class="lbl">Unión</span><div class="fld">Conector recto</div></div>
+      <p class="nota avisoc">Estado: estimada. La distancia entre los dos bloques encaja con un paso medido, pero ninguna cámara detecta el conector, así que la unión no se da por observada.</p>`;
+  }
+
+  function pintarMonitor() {
+    const c = vistaDe(gemeloCamara);
+    $('gemelo-monitor-titulo').textContent = c ? `Monitor · ${c.nombre}` : 'Monitor';
+    if (!c) { $('gemelo-monitor').innerHTML = '<p class="nota">Selecciona una cámara en la mesa.</p>'; return; }
+    const leidas = c.observaciones.filter(o => o.lexema !== '<sin leer>');
+    $('gemelo-monitor').innerHTML = `<img alt="Render desde ${escapar(c.nombre)}" src="${c.imagen}">
+      <p class="nota">${c.cobertura.campo_mm} mm de campo · ${c.cobertura.px_por_mm} px/mm · ficha ${c.cobertura.ficha_px} px${c.cobertura.suficiente ? '' : ' <b class="errc">por debajo del mínimo utilizable</b>'}</p>
+      <div class="ensayo-lista">${leidas.map(o => `<span class="ensayo-item okc"><span class="mono">${escapar(o.lexema)}</span> ${o.candidatos[0] ? o.candidatos[0].puntaje.toFixed(2) : ''}</span>`).join('') || '<span class="nota">Nada legible desde aquí.</span>'}</div>
+      <p class="nota${c.sin_leer ? ' errc' : ''}">${c.sin_leer} región${c.sin_leer === 1 ? '' : 'es'} detectada${c.sin_leer === 1 ? '' : 's'} sin poder leerse</p>`;
+    $('gemelo-otras').innerHTML = gemeloEstado.camaras.map(o => `<button data-otra="${escapar(o.id)}" class="${o.id === gemeloCamara ? 'sel' : ''}">
+      <img alt="Vista de ${escapar(o.nombre)}" src="${o.imagen}"><span class="cap">${escapar(o.nombre)} · ${o.observaciones.filter(x => x.lexema !== '<sin leer>').length} leídas</span></button>`).join('');
+  }
+
+  function pintarGemelo() {
+    const g = gemeloEstado;
+    if (!g) return;
+    $('gemelo-titulo').textContent = `Gemelo digital · ${g.escena} · paso ${g.paso}`;
+    $('gemelo-descripcion').textContent = g.descripcion;
+    $('gemelo-paso-actual').textContent = `Imágenes sintéticas. Verdad conocida: ${g.verdad.join(', ') || 'ninguna'}.`;
+    if ($('gemelo-escena').options.length !== g.escenas.length) {
+      $('gemelo-escena').innerHTML = g.escenas.map(n => `<option value="${n}">${n}</option>`).join('');
+    }
+    $('gemelo-escena').value = g.escena;
+    escena3d?.actualizar(g);
+    pintarMonitor();
+    pintarUnion();
+    const f = g.fusion;
+    const lecturas = g.camaras.map(c => `<div class="gemelo-lectura"><h4>${escapar(c.nombre)}</h4>
+      <div class="ensayo-lista">${c.observaciones.map(o => `<span class="ensayo-item ${o.lexema === '<sin leer>' ? 'errc' : 'okc'}"><span class="mono">${escapar(o.lexema)}</span></span>`).join('') || '<span class="nota">Sin observaciones.</span>'}</div></div>`).join('');
+    const piezas = f.piezas.map(p => {
+      const [titulo, clase, ayuda] = PROCEDENCIA[p.procedencia] || [p.procedencia, '', ''];
+      const filas = (p.vistas || []).map(v => `<div class="vista-ficha ${v.ve ? '' : 'errc'}">
+          <span class="vf-camara">${escapar(v.nombre)}</span>
+          <span class="vf-lee">${v.ve ? `propone <b class="mono">${escapar(v.propone)}</b>${v.candidatos && v.candidatos[0] ? ' · ' + v.candidatos[0].puntaje.toFixed(2) : ''}` : 'no la ve'}</span>
+          <span class="vf-motivo">${escapar(v.motivo || '')}</span></div>`).join('');
+      return `<div class="pieza-observada"><div><span class="mono">${escapar(p.lexema)}</span><span class="${clase}">${titulo}</span>${p.provisional ? '<span class="avisoc">lectura anterior conservada</span>' : ''}</div>
+        <div class="nota">${escapar(ayuda)}</div>
+        <div class="vistas-ficha">${filas || '<span class="nota">Sin información por cámara.</span>'}</div></div>`;
+    }).join('');
+    const est = g.estructura || {};
+    const estructura = `<div class="prop"><span class="lbl">Estructura</span><div class="fld">${
+      (est.tes || []).length ? `${est.tes.length} unión${est.tes.length === 1 ? '' : 'es'} en T` : 'sin uniones en T'
+    } · ${(est.conexiones || []).length} conexión${(est.conexiones || []).length === 1 ? '' : 'es'} de montaje · ${est.soportes || 0} soporte${est.soportes === 1 ? '' : 's'} · ${est.fondos || 0} fondo${est.fondos === 1 ? '' : 's'}</div></div>
+      <p class="nota${est.uniones_confirmadas ? '' : ' avisoc'}">Las uniones entre bloques se estiman por la distancia medida; ninguna cámara observa el conector, así que no se dan por confirmadas. Una T une dos caminos en uno, pero la distancia no dice cuál rama entra y cuál sale.</p>`;
+    const disponibles = f.piezas.map(p => p.lexema);
+    const faltan = [];
+    for (const v of g.verdad) {
+      const n = disponibles.indexOf(v);
+      if (n < 0) faltan.push(v); else disponibles.splice(n, 1);
+    }
+    const cuenta = faltan.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {});
+    const faltanTexto = Object.entries(cuenta).map(([v, n]) => n > 1 ? `${v} (${n})` : v);
+    $('gemelo-conjunto').innerHTML = `<div class="gemelo-lecturas">${lecturas}</div>
+      <div class="prop"><span class="lbl">Programa</span><pre class="fld mono">${escapar(g.codigo || '(sin instrucciones)')}</pre></div>
+      <div class="prop"><span class="lbl">Fusión</span><div class="fld">${escapar(f.estado)} · revisión ${f.revision} · ${f.habilita_ejecucion ? 'habilita la ejecución' : 'no habilita la ejecución'}</div></div>
+      ${estructura}
+      ${piezas || '<p class="nota">Ninguna pieza localizada todavía.</p>'}
+      ${faltan.length ? `<p class="nota errc">Sin información de: ${escapar(faltanTexto.join(', '))}. Se cuenta ficha a ficha, no por símbolo. No se sustituye por la verdad conocida.</p>` : ''}
+      ${f.avisos.map(a => `<p class="nota errc">${escapar(a)}</p>`).join('')}`;
+    validarConScala(g.codigo, f.habilita_ejecucion);
+  }
+
+  function validarConScala(codigo, habilita) {
+    const destino = $('gemelo-scala');
+    if (!codigo.trim()) {
+      gemeloFirma = ''; gemeloVeredicto = null;
+      destino.innerHTML = '<p class="nota">La fusión todavía no propone un programa que validar.</p>';
+      return;
+    }
+    if (codigo !== gemeloFirma) {
+      gemeloMotor?.terminate();
+      gemeloFirma = codigo; gemeloVeredicto = null;
+      gemeloMotor = new Worker(new URL('../interprete-worker.js', import.meta.url), {type: 'module'});
+      const firma = codigo;
+      gemeloMotor.onmessage = ({data}) => { if (firma !== gemeloFirma) return; gemeloVeredicto = data.resultado; gemeloMotor?.terminate(); gemeloMotor = null; pintarScala(habilita); };
+      gemeloMotor.onerror = () => { if (firma !== gemeloFirma) return; gemeloVeredicto = {valido: false, etapa: 'motor', decide: 'sistema', mensaje: 'No se pudo cargar el intérprete.'}; pintarScala(habilita); };
+      gemeloMotor.postMessage({revision: 1, codigo: codigo + '\n'});
+    }
+    pintarScala(habilita);
+  }
+
+  function pintarScala(habilita) {
+    const destino = $('gemelo-scala');
+    if (!gemeloVeredicto) { destino.innerHTML = '<p class="nota">Consultando al intérprete…</p>'; return; }
+    const v = veredicto({bloques: 1, resultado: gemeloVeredicto, origen: 'camara'});
+    const traza = gemeloVeredicto.traza || [];
+    const siguiente = traza.length ? traza[0].siguiente : null;
+    destino.innerHTML = `<div class="dictamen"><span class="dictamen-origen">${escapar(procedencia(gemeloVeredicto))}</span>
+        <span><b class="${v.color}">${escapar(v.titulo)}</b>${v.detalle ? `<div class="nota">${escapar(v.detalle)}</div>` : ''}</span></div>
+      <p class="nota">${traza.length > 1 ? `Traza de ${traza.length - 1} paso${traza.length === 2 ? '' : 's'}. Siguiente instrucción: ${siguiente == null ? 'fin' : siguiente + 1}.` : 'Sin traza recorrible.'}</p>
+      <div class="dos-preguntas">
+        <div><b>¿Qué vieron las cámaras?</b><p class="nota ${habilita ? 'okc' : 'avisoc'}">${habilita
+          ? 'La lectura está completa y quieta, así que se puede ejecutar lo leído.'
+          : 'La lectura todavía no basta para ejecutar: falta una ficha, algo se mueve o las cámaras no coinciden.'}</p></div>
+        <div><b>¿Qué dice el lenguaje?</b><p class="nota">${escapar(v.titulo)}. Scala juzga el programa candidato aunque las cámaras no estén seguras, y las cámaras pueden estar seguras de un programa que Scala rechaza. Son dos preguntas distintas.</p></div>
+      </div>`;
+  }
+
+  function pintarPoseGemelo() {
+    const g = gemeloEstado;
+    if (!g) return;
+    if ($('gemelo-camara').options.length !== g.camaras.length) {
+      $('gemelo-camara').innerHTML = g.camaras.map(c => `<option value="${c.id}">${escapar(c.nombre)}</option>`).join('');
+    }
+    if (!g.camaras.some(c => c.id === gemeloCamara)) gemeloCamara = g.camaras[0]?.id;
+    $('gemelo-camara').value = gemeloCamara;
+    const c = g.camaras.find(c => c.id === gemeloCamara);
+    if (!c) return;
+    const eje = (etiqueta, campo, indice, valor) => propiedad(etiqueta, `<input class="fld mono" type="number" step="5" data-pose="${campo}" data-indice="${indice}" value="${Math.round(valor)}">`);
+    $('gemelo-pose').innerHTML = eje('Posición X', 'centro', 0, c.centro[0]) + eje('Posición Y', 'centro', 1, c.centro[1]) + eje('Posición Z', 'centro', 2, c.centro[2])
+      + eje('Mira a X', 'objetivo', 0, c.objetivo[0]) + eje('Mira a Y', 'objetivo', 1, c.objetivo[1]) + eje('Mira a Z', 'objetivo', 2, c.objetivo[2])
+      + propiedad('Campo (°)', `<input class="fld mono" type="number" step="1" min="10" max="120" data-pose="fov" value="${Math.round(c.fov)}">`)
+      + `<p class="nota">Dirección ${c.direccion.map(v => v.toFixed(2)).join(', ')}</p>`;
+  }
+
+  function abrirEscena3d() {
+    if (escena3d) return;
+    escena3d = crearEscenaGemelo($('gemelo-escena3d'), {
+      alSeleccionar: id => { gemeloCamara = id; pintarMonitor(); pintarPoseGemelo(); },
+      alMover: (id, centro) => gemelo('mover', { id, centro }),
+      alTocarUnion: tocado => { gemeloUnion = tocado; pintarUnion(); },
+    });
+  }
+
+  function cerrarEscena3d() {
+    escena3d?.destruir();
+    escena3d = null;
+  }
+
+  async function gemelo(accion, datos) {
+    try {
+      abrirEscena3d();
+      gemeloEstado = accion ? await api('gemelo/' + accion, datos || {}) : await api('gemelo');
+      if (!gemeloCamara || !gemeloEstado.camaras.some(c => c.id === gemeloCamara)) {
+        gemeloCamara = escena3d?.elegida ?? gemeloEstado.camaras[0]?.id ?? null;
+      }
+      escena3d?.seleccionar(gemeloCamara);
+      pintarGemelo(); pintarPoseGemelo();
+      if (!datos) escena3d?.encuadrar();
+    } catch (error) { mensaje(error.message, true); }
+  }
+
   async function simbolos() {
     try {
       const lista = await api('simbolos');
@@ -377,11 +583,45 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   $('calibracion-form').onsubmit = e => { e.preventDefault(); actuar(() => api('camaras/reiniciar_calibracion', datosFormulario('calibracion-form')), 'Sesión iniciada. Cambia el ángulo del tablero entre capturas.'); };
   for (const accion of ['capturar', 'calcular', 'registrar']) $('cal-' + accion).onclick = () => actuar(() => api('camaras/' + accion, datosFormulario('calibracion-form')), accion === 'capturar' ? 'Captura guardada.' : 'Calibración guardada.');
   $('cal-camara').onchange = pintarCalibracion;
+  $('gemelo-escena').onchange = e => gemelo('cargar', {escena: e.target.value});
+  $('gemelo-paso').onclick = () => gemelo('paso', {incremento: 1});
+  $('gemelo-atras').onclick = () => gemelo('paso', {incremento: -1});
+  $('gemelo-reiniciar').onclick = () => gemelo('reiniciar');
+  $('gemelo-camara').onchange = e => { gemeloCamara = e.target.value; escena3d?.seleccionar(gemeloCamara); pintarMonitor(); pintarPoseGemelo(); };
+  $('gemelo-otras').addEventListener('click', e => {
+    const boton = e.target.closest('[data-otra]');
+    if (!boton) return;
+    gemeloCamara = boton.dataset.otra;
+    escena3d?.seleccionar(gemeloCamara);
+    pintarMonitor(); pintarPoseGemelo();
+  });
+  $('gemelo-quitar').onclick = () => gemelo('quitar', {id: gemeloCamara});
+  $('gemelo-guardar').onclick = () => actuar(() => api('gemelo/guardar', {}), 'Configuración de cámaras guardada.');
+  $('gemelo-anadir').onclick = () => {
+    const usados = new Set((gemeloEstado?.camaras || []).map(c => c.id));
+    let n = usados.size + 1;
+    while (usados.has('virtual' + n)) n++;
+    gemelo('anadir', {id: 'virtual' + n, nombre: 'Virtual ' + n});
+  };
+  $('gemelo-pose').addEventListener('change', e => {
+    const campo = e.target.dataset.pose;
+    if (!campo || !gemeloEstado) return;
+    const c = gemeloEstado.camaras.find(c => c.id === gemeloCamara);
+    if (!c) return;
+    if (campo === 'fov') return void gemelo('mover', {id: gemeloCamara, fov: Number(e.target.value)});
+    const valores = [...c[campo]];
+    valores[Number(e.target.dataset.indice)] = Number(e.target.value);
+    gemelo('mover', {id: gemeloCamara, [campo]: valores});
+  });
+  $('gemelo-reproducir').addEventListener('change', e => {
+    clearInterval(gemeloReloj); gemeloReloj = null;
+    if (e.target.checked) gemeloReloj = setInterval(() => gemelo('paso', {incremento: 1}), 1400);
+  });
   $('simbolo-form').onsubmit = e => { e.preventDefault(); actuar(async () => { const f = datosFormulario('simbolo-form'); await api('simbolos/guardar', { nombre: f.nombre, tipo: f.tipo, imagen: await foto() }); await simbolos(); }, 'Referencia guardada y disponible para todas las cámaras.'); };
   $('simbolo-probar').onclick = () => actuar(async () => { const r = await api('simbolos/probar', { imagen: await foto() }); $('simbolo-prueba').innerHTML = r.candidatos.map(c => `<div class="simrow"><span class="mono">${escapar(c.nombre || c.lexema)}</span><span>${c.puntaje.toFixed(3)}</span></div>`).join('') || 'Sin trazo reconocible.'; }, 'Similitudes calculadas. No representan probabilidades.');
   async function ciclo() { await actualizar(); timer = setTimeout(ciclo, 250); }
   ciclo();
-  window.addEventListener('pagehide', () => { clearTimeout(timer); cerrarVisor(); detenerValidacion(); });
+  window.addEventListener('pagehide', () => { clearTimeout(timer); cerrarVisor(); cerrarEscena3d(); detenerValidacion(); });
   return {
     mostrar(destino) {
       pagina = destino; const activa = !['mesa', 'ejecucion'].includes(destino); raiz.hidden = !activa;
@@ -394,6 +634,8 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       $('servicio-estado').hidden = ['ejemplos', 'piezas'].includes(destino);
       $('servicio-ayuda').hidden = !!estado || !['camaras', 'calibracion', 'simbolos'].includes(destino);
       mensaje(''); cerrarVisor();
+      if (destino === 'gemelo') gemelo();
+      if (destino !== 'gemelo') { clearInterval(gemeloReloj); gemeloReloj = null; $('gemelo-reproducir').checked = false; cerrarEscena3d(); }
       if (destino === 'simbolos') simbolos();
       if (destino === 'piezas') { const cantidades = inventario(); $('inventario').innerHTML = propiedad('Piezas', `<div class="fld">${Object.values(cantidades).reduce((a,b) => a+b,0)}</div>`); listaLateral.innerHTML = '<h2>Lista de piezas</h2>' + MODELOS.map(([id,nombre]) => `<button class="layer" data-modelo="${id}"><span>${nombre}</span><span class="right-num">${cantidades[id] || 0}</span></button>`).join(''); miniaturas(); modelo('bloque_1_param'); }
       if (estado) pintarCamaras();

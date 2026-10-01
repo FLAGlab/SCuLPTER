@@ -12,6 +12,7 @@ import clasificador_simbolos as clasif
 
 
 OPERACIONES = {"PUSH", "MOV", "POP", "DUP", "NEG", "?", "JMP", "CMP", "ADD", "SUB", "MUL", "DIV", "MOD"}
+PRIORIDAD_ORIGEN = ("foto", "sintetico", "render")
 
 PROGRAMAS = {
     "minimo": "PUSH a 3\nPUSH a 5\nADD a",
@@ -83,7 +84,7 @@ class Vocabulario:
                 if not utiles:
                     continue
                 plantillas.setdefault(item["lexema"], []).extend(utiles)
-                cuenta = procedencia.setdefault(item["lexema"], {"foto": 0, "render": 0})
+                cuenta = procedencia.setdefault(item["lexema"], {"foto": 0, "sintetico": 0, "render": 0})
                 cuenta[referencia["origen"]] = cuenta.get(referencia["origen"], 0) + 1
         self.plantillas = {k: v for k, v in plantillas.items() if v}
         self.procedencia = {k: v for k, v in procedencia.items() if k in self.plantillas}
@@ -107,8 +108,9 @@ class Vocabulario:
         for item in resultado.values():
             origenes = [r["origen"] for r in item["referencias"]]
             item["fotos"] = [r["foto"] for r in item["referencias"]]
-            item["origen"] = "foto" if "foto" in origenes else ("render" if origenes else None)
+            item["origen"] = next((o for o in PRIORIDAD_ORIGEN if o in origenes), None)
             item["fotografiadas"] = origenes.count("foto")
+            item["sinteticas"] = origenes.count("sintetico")
         return list(resultado.values())
 
     def ensayo(self, programa):
@@ -127,6 +129,7 @@ class Vocabulario:
         mixtos = sorted(k for k, v in self.procedencia.items() if v.get("foto") and v.get("render"))
         return {"declarados": len(entradas), "con_plantilla": len(self.plantillas),
                 "solo_fotos": self.solo_fotos, "mixtos": mixtos,
+                "plantillas_sintetico": sum(v.get("sintetico", 0) for v in self.procedencia.values()),
                 "plantillas_foto": sum(v.get("foto", 0) for v in self.procedencia.values()),
                 "plantillas_render": sum(v.get("render", 0) for v in self.procedencia.values()),
                 "desde_ficha": sum(1 for e in entradas.values() if e.get("origen") == "foto" and e["lexema"] in self.plantillas),

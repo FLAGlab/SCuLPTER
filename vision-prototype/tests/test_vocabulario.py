@@ -100,13 +100,13 @@ class ProcedenciaDePlantillasTest(unittest.TestCase):
         v = self.vocabulario()
         self.assertFalse(v.solo_fotos)
         self.assertIn("PUSH", v.plantillas)
-        self.assertEqual(v.procedencia["PUSH"], {"foto": 0, "render": 1})
+        self.assertEqual(v.procedencia["PUSH"], {"foto": 0, "sintetico": 0, "render": 1})
 
     def test_una_foto_nueva_convive_con_el_render_en_el_clasificador(self):
         v = self.vocabulario()
         antes = len(v.plantillas["PUSH"])
         v.guardar({"nombre": "PUSH", "tipo": "operacion", "imagen": foto_valida()})
-        self.assertEqual(v.procedencia["PUSH"], {"foto": 1, "render": 1})
+        self.assertEqual(v.procedencia["PUSH"], {"foto": 1, "sintetico": 0, "render": 1})
         self.assertGreater(len(v.plantillas["PUSH"]), antes)
         self.assertEqual(v.ensayo(PROGRAMAS["minimo"])["mixtos"], ["PUSH"])
 
@@ -115,7 +115,7 @@ class ProcedenciaDePlantillasTest(unittest.TestCase):
         v = self.vocabulario(solo_fotos=True)
         self.assertTrue(v.solo_fotos)
         self.assertEqual(list(v.plantillas), ["PUSH"])
-        self.assertEqual(v.procedencia["PUSH"], {"foto": 1, "render": 0})
+        self.assertEqual(v.procedencia["PUSH"], {"foto": 1, "sintetico": 0, "render": 0})
         self.assertEqual(v.ensayo(PROGRAMAS["minimo"])["mixtos"], [])
 
     def test_sin_ninguna_foto_el_modo_solo_fotos_no_deja_plantillas(self):

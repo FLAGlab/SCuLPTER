@@ -123,3 +123,30 @@ body.modo-gravedad #aviso { color: var(--text-2); }
 .dictamen { display: flex; gap: 8px; align-items: flex-start; }
 .dictamen-origen { flex: none; width: 52px; color: var(--text-3); font-family: var(--mono); font-size: 11.5px; line-height: 17px; }
 .dictamen .nota { margin-top: 2px; white-space: pre-wrap; }
+#gemelo-vistas { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.gemelo-vista img { width: 100%; border-radius: 5px; display: block; background: var(--field); }
+.gemelo-vista .nota { margin: 6px 0 0; }
+.gemelo-vista .ensayo-lista { margin-top: 6px; }
+#gemelo-conjunto .prop { align-items: flex-start; }
+#gemelo-conjunto pre.fld { height: auto; min-height: 28px; padding: 6px 8px; margin: 0; white-space: pre-wrap; }
+.gemelo-espacio { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
+.gemelo-mesa .nota { margin: 6px 0 0; }
+#gemelo-escena3d { height: 430px; padding: 0; overflow: hidden; border-radius: 5px; }
+#gemelo-escena3d canvas { display: block; width: 100%; height: 100%; border-radius: 5px; }
+#gemelo-monitor img { width: 100%; border-radius: 5px; display: block; }
+#gemelo-monitor .nota, #gemelo-otras .nota { margin: 6px 0 0; }
+#gemelo-otras { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+#gemelo-otras button { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; }
+#gemelo-otras img { width: 100%; border-radius: 5px; display: block; }
+#gemelo-otras .sel img { box-shadow: 0 0 0 2px var(--sel); }
+#gemelo-otras .cap { font-size: 11px; color: var(--text-2); display: block; margin-top: 2px; }
+.gemelo-lecturas { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 10px; }
+.gemelo-lectura { background: var(--field); border-radius: 5px; padding: 8px 10px; }
+.gemelo-lectura h4 { margin: 0 0 4px; font-size: 12.5px; }
+.vistas-ficha { margin-top: 6px; display: grid; gap: 2px; }
+.vista-ficha { display: grid; grid-template-columns: 110px 1fr; gap: 8px; font-size: 11.5px; }
+.vista-ficha .vf-motivo { grid-column: 2; color: var(--text-3); }
+.vista-ficha .vf-camara { color: var(--text-2); }
+.dos-preguntas { display: grid; gap: 10px; margin-top: 10px; }
+.dos-preguntas b { font-size: 12.5px; }
+.dos-preguntas .nota { margin-top: 2px; }
