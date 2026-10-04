@@ -167,12 +167,14 @@ class ClasificadorDeSimbolos(unittest.TestCase):
         self.assertIsNone(clasif.reconocer(rng.integers(0, 255, (60, 60, 3), dtype=np.uint8)))
         self.assertIsNone(clasif.reconocer(np.full((60, 60, 3), 240, np.uint8)))
 
-    def test_mancha_cuadrada_se_rechaza_por_margen(self):
+    def test_mancha_cuadrada_sin_estructura_se_rechaza(self):
         mancha = np.full((60, 60, 3), 230, np.uint8)
         cv2.rectangle(mancha, (15, 15), (45, 45), (40, 40, 40), -1)
         lexema, candidatos = clasif.reconocer_con_puntajes(mancha)
         self.assertIsNone(lexema)
-        self.assertLess(candidatos[0][1] - candidatos[1][1], clasif.MARGEN)
+        self.assertLess(candidatos[0][1], clasif.UMBRAL,
+                        "los canales de intensidad y gradiente no coinciden en un ganador, "
+                        "así que ninguno alcanza el umbral")
 
     def test_imagen_de_prueba_da_tres_operaciones(self):
         ruta = os.path.join(AQUI, "datos", "imagenes", "demo_simbolos_reales.png")

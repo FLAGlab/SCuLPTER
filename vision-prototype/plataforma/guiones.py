@@ -1,6 +1,6 @@
 import numpy as np
 
-from plataforma.escena_virtual import (PASO_CORTO_MM, Cuerpo, Escena, Fondo, Mano, Soporte, Te,
+from plataforma.escena_virtual import (PASO_CORTO_MM, Camara, Cuerpo, Escena, Fondo, Mano, Soporte, Te,
                                        camaras_por_omision, centro_de)
 
 PROGRAMA_BASE = ['PUSH a 3', 'ADD a']
@@ -85,7 +85,7 @@ GUIONES = {
     'movimiento': (mano_en_movimiento, False, 'Una mano cruza la mesa durante toda la sesión.'),
     'repetidos': (bloques_repetidos, True, 'Dos bloques con el mismo símbolo y los mismos parámetros.'),
     'retirada': (retirada_de_bloque, False, 'Se retira el bloque ADD y su parámetro en el paso 5.'),
-    'desacuerdo': (desacuerdo_entre_camaras, False, 'La lateral apunta desviada y no coincide con la cenital.'),
+    'desacuerdo': (desacuerdo_entre_camaras, True, 'Una cámara apunta desviada; las demás la dejan en minoría.'),
 }
 
 
@@ -182,4 +182,68 @@ GUIONES.update({
     'retirar_una': (retirar_una_de_dos, False, 'Dos fichas "a" iguales; se retira solo la segunda.'),
     'reaparece': (reaparece_una_ficha, False, 'El literal desaparece en el paso 4 y vuelve en el 9.'),
     'ejecutable': (ejecutable, True, 'Programa que Scala sí puede ejecutar: PUSH a 3 · PUSH a 5 · ADD a.'),
+})
+
+
+PROGRAMA_CONDICION = ['PUSH a -1', '? a', 'PUSH b 99', 'PUSH c 7']
+PROGRAMA_BUCLE = ['PUSH a 3', 'SUB a 1', 'DUP a', '? a', 'JMP -3']
+
+
+def ejemplo_condicion(vocabulario):
+    return _preparar(PROGRAMA_CONDICION, vocabulario), lambda escena, paso: None
+
+
+def ejemplo_bucle(vocabulario):
+    return _preparar(PROGRAMA_BUCLE, vocabulario), lambda escena, paso: None
+
+
+GUIONES.update({
+    'ejemplo_condicion': (ejemplo_condicion, False,
+                          'Ejemplo «condicion»: salto condicional con tres pilas y un literal negativo.'),
+    'ejemplo_bucle': (ejemplo_bucle, False,
+                      'Ejemplo «bucle»: cinco bloques con un JMP que vuelve atrás.'),
+})
+
+EJEMPLOS = {'minimo': 'ejecutable', 'condicion': 'ejemplo_condicion', 'bucle': 'ejemplo_bucle'}
+EJEMPLOS_SIN_ESCENA = {'fibonacci': 'Quince instrucciones: no cabe en la mesa que el gemelo representa hoy.'}
+
+
+def vistas_contradictorias(vocabulario):
+    escena = _preparar(PROGRAMA_BASE, vocabulario)
+    objetivo = escena.fichas[0].centro
+    escena.camaras = list(escena.camaras) + [
+        Camara('enfrente', 'Enfrente', [objetivo[0], 190., 150.], objetivo, 45.)]
+    return escena, lambda escena, paso: None
+
+
+def cobertura_parcial(vocabulario):
+    escena = _preparar(PROGRAMA_BASE, vocabulario)
+    escena.camaras = [c for c in escena.camaras if c.centro[0] < 60][:3]
+    return escena, lambda escena, paso: None
+
+
+def dos_webcams(vocabulario):
+    escena = _preparar(PROGRAMA_BASE, vocabulario)
+    centro = centro_de(escena.fichas)
+    escena.camaras = [Camara('web1', 'Webcam izquierda', [centro[0] - 55, -45., 300.], [centro[0] - 20, 0., 30.], 52.),
+                      Camara('web2', 'Webcam derecha', [centro[0] + 55, -45., 300.], [centro[0] + 20, 0., 30.], 52.)]
+    return escena, lambda escena, paso: None
+
+
+def una_instruccion(vocabulario):
+    return _preparar(['PUSH a 3'], vocabulario), lambda escena, paso: None
+
+
+def dos_pilas(vocabulario):
+    return _preparar(['PUSH a 3', 'PUSH b 5', 'MOV a b'], vocabulario), lambda escena, paso: None
+
+
+GUIONES.update({
+    'contradiccion': (vistas_contradictorias, False,
+                      'Una cámara enfrente, al otro lado de la mesa, ve la flecha girada.'),
+    'cobertura_parcial': (cobertura_parcial, False,
+                          'Tres cámaras que solo cubren el primer bloque; el segundo queda sin evidencia.'),
+    'dos_webcams': (dos_webcams, True, 'Solo dos cámaras, como dos webcams plausibles sobre la mesa.'),
+    'una_instruccion': (una_instruccion, True, 'Una sola instrucción: PUSH a 3.'),
+    'dos_pilas': (dos_pilas, True, 'Dos pilas: PUSH a 3 · PUSH b 5 · MOV a b.'),
 })

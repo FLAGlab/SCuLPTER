@@ -5,10 +5,11 @@ import cv2
 import numpy as np
 
 from plataforma.escena_virtual import (CONFIGURACION_PASOS, HUECO_CONECTOR_MM, Camara, Ficha, camaras_por_omision, centro_de,
-                                       cobertura, cuadro, guardar_camaras)
+                                       cobertura, cuadro, escenario_de, guardar_camaras, marco_desde_avance)
+from clasificador_simbolos import SIN_LEER
 from plataforma.fusion import Fusion, puede_ejecutar
 from plataforma.geometria_fusion import proyectar
-from plataforma.guiones import GUIONES
+from plataforma.guiones import EJEMPLOS, EJEMPLOS_SIN_ESCENA, GUIONES
 from plataforma.vocabulario import Vocabulario
 
 
@@ -19,8 +20,17 @@ def codificar(imagen):
     return 'data:image/jpeg;base64,' + base64.b64encode(buffer.tobytes()).decode()
 
 
+def _mas_cerca(observaciones, uv, alcance=None):
+    if uv is None or not observaciones:
+        return None
+    elegida = min(observaciones, key=lambda o: np.hypot(o['x'] - uv[0], o['y'] - uv[1]))
+    if alcance is not None and np.hypot(elegida['x'] - uv[0], elegida['y'] - uv[1]) > alcance:
+        return None
+    return elegida
+
+
 def procedencia(pieza, verdad):
-    camaras = pieza.get('camaras') or []
+    camaras = pieza.get('lectores') or []
     if pieza['estado'] != 'confirmada':
         return 'sin_informacion' if pieza['estado'] == 'no_observada' else pieza['estado']
     if len(camaras) > 1:
@@ -36,6 +46,7 @@ class Gemelo:
         self.vocabulario = Vocabulario(raiz, datos)
         self.fusion = Fusion()
         self.paso = 0
+        self.captura = 0
         self.reproduciendo = False
         self.escena_nombre = 'completa'
         self.escena, self.guion = GUIONES['completa'][0](self.vocabulario)
@@ -49,6 +60,7 @@ class Gemelo:
             self.escena, self.guion = GUIONES[nombre][0](self.vocabulario)
             self.fusion = Fusion()
             self.paso = 0
+            self.captura = 0
             self.ultimo = None
         return self.avanzar(0)
 
@@ -98,19 +110,15 @@ class Gemelo:
         with self.lock:
             self.paso = max(0, self.paso + incremento)
             self.guion(self.escena, self.paso)
-            instante = 10.0 + self.paso * 0.1
-            vistas, marcos = {}, []
+            self.captura += 1
+            instante = 10.0 + self.captura * 0.1
+            vistas, marcos, modelos = {}, [], {}
+            mundo = escenario_de(self.escena)
             for camara in self.escena.camaras:
-                imagen, marco = cuadro(self.escena, camara, self.vocabulario, instante, self.paso + 1)
-                proyeccion = {}
-                modelo_camara = camara.modelo()
-                if modelo_camara is not None:
-                    for pista in self.fusion.pistas.values():
-                        uv, z = proyectar(modelo_camara, [pista['posicion']])
-                        if z[0] > 0 and 0 <= uv[0][0] < camara.resolucion[0] and 0 <= uv[0][1] < camara.resolucion[1]:
-                            proyeccion[pista['id']] = [float(uv[0][0]), float(uv[0][1])]
+                imagen, marco = cuadro(self.escena, camara, self.vocabulario, instante, self.captura, mundo=mundo)
+                modelos[camara.id] = camara.modelo()
                 vistas[camara.id] = {'imagen': codificar(imagen), 'cobertura': cobertura(camara),
-                                     'proyeccion': proyeccion,
+                                     'proyeccion': {},
                                      'observaciones': [{'lexema': o['lexema'], 'x': float(o['x']), 'y': float(o['y']),
                                                         'caja': [float(v) for v in o['caja']],
                                                         'calidad': round(float(o['calidad']), 3),
@@ -122,26 +130,49 @@ class Gemelo:
                 marcos.append({'id': camara.id, 'nombre': camara.nombre, 'estado': 'conectada', 'virtual': True,
                                'pose': camara.pose(), 'intrinsecos': camara.intrinsecos(), 'historial': [marco]})
             resultado = self.fusion.actualizar(marcos, CONFIGURACION_PASOS, instante)
+            for camara in self.escena.camaras:
+                modelo_camara = modelos[camara.id]
+                if modelo_camara is None:
+                    continue
+                proyeccion = vistas[camara.id]['proyeccion']
+                for p in resultado['piezas']:
+                    uv, z = proyectar(modelo_camara, [p['posicion']])
+                    if z[0] > 0 and 0 <= uv[0][0] < camara.resolucion[0] and 0 <= uv[0][1] < camara.resolucion[1]:
+                        proyeccion[p['id']] = [float(uv[0][0]), float(uv[0][1])]
             verdad = sorted(self.escena.verdad())
             piezas = []
             for p in resultado['piezas']:
                 detalle = []
+                lectores = set(p.get('lectores') or [])
+                aportan = set(p.get('camaras') or [])
                 for camara in self.escena.camaras:
                     vista = vistas[camara.id]
-                    cerca = sorted(vista['observaciones'],
-                                   key=lambda o: (o['x'] - vista['proyeccion'].get(p['id'], (1e9, 1e9))[0]) ** 2
-                                   + (o['y'] - vista['proyeccion'].get(p['id'], (1e9, 1e9))[1]) ** 2)
                     uv = vista['proyeccion'].get(p['id'])
-                    if uv is None:
-                        detalle.append({'camara': camara.id, 'nombre': camara.nombre, 've': False,
-                                        'motivo': 'la ficha cae fuera de su encuadre', 'propone': None})
+                    fila = {'camara': camara.id, 'nombre': camara.nombre, 'propone': None, 'candidatos': []}
+                    if camara.id in lectores:
+                        elegida = _mas_cerca(vista['observaciones'], uv)
+                        detalle.append({**fila, 'clase': 'asociada', 've': True, 'propone': p['lexema'],
+                                        'candidatos': elegida['candidatos'][:3] if elegida else [],
+                                        'motivo': 'la fusión usó esta lectura para aceptar la ficha'})
                         continue
-                    elegida = cerca[0] if cerca and np.hypot(cerca[0]['x'] - uv[0], cerca[0]['y'] - uv[1]) <= 45 else None
-                    detalle.append({'camara': camara.id, 'nombre': camara.nombre, 've': elegida is not None,
-                                    'motivo': None if elegida else 'no detectó nada en esa posición',
-                                    'propone': elegida['lexema'] if elegida else None,
-                                    'candidatos': elegida['candidatos'][:3] if elegida else []})
+                    if uv is None:
+                        detalle.append({**fila, 'clase': 'fuera', 've': False,
+                                        'motivo': 'la ficha cae fuera de su encuadre'})
+                        continue
+                    elegida = _mas_cerca(vista['observaciones'], uv, 45.0)
+                    if elegida is None:
+                        detalle.append({**fila, 'clase': 'sin_deteccion', 've': False,
+                                        'motivo': 'la encuadra pero no detectó nada ahí'})
+                        continue
+                    ilegible = elegida['lexema'] == SIN_LEER
+                    detalle.append({**fila, 'clase': 'ilegible' if ilegible else 'contradice', 've': True,
+                                    'propone': None if ilegible else elegida['lexema'],
+                                    'candidatos': elegida['candidatos'][:3],
+                                    'motivo': 'la detectó pero no pudo identificarla' if ilegible
+                                    else 'propone otro símbolo y la fusión no la usó',
+                                    'aporta': camara.id in aportan})
                 piezas.append({**p, 'procedencia': procedencia(p, verdad), 'vistas': detalle,
+                               'respaldo': len(lectores),
                                'provisional': bool(p.get('edad_ms', 0) > 400)})
             def marco(pieza):
                 return {'avance': pieza.avance.tolist(), 'lateral': pieza.lateral.tolist(),
@@ -153,6 +184,7 @@ class Gemelo:
                             'retirada': f.id in self.escena.retiradas, **marco(f)}
                            for f in self.escena.fichas],
                 'conectores': [{'centro': c['centro'], 'avance': c['avance'], 'largo': HUECO_CONECTOR_MM,
+                                'normal': marco_desde_avance(c['avance'])[2].tolist(),
                                 'desde': c.get('desde'), 'hacia': c.get('hacia'),
                                 'estado': 'estimada'} for c in self.escena.conexiones if c['tipo'] == 'conector'],
                 'tes': [{'id': f'te{n}', 'centro': t.centro.tolist(), 'avance': t.avance.tolist(),
@@ -172,7 +204,9 @@ class Gemelo:
                 'escena': self.escena_nombre, 'descripcion': GUIONES[self.escena_nombre][2],
                 'debe_ejecutar': GUIONES[self.escena_nombre][1], 'sintetica': True,
                 'paso': self.paso, 'reproduciendo': self.reproduciendo,
-                'escenas': sorted(GUIONES), 'programa': self.escena.programa, 'verdad': verdad,
+                'escenas': sorted(GUIONES), 'ejemplos': dict(EJEMPLOS), 'ejemplos_pendientes': dict(EJEMPLOS_SIN_ESCENA),
+                'escenas_programa': self.catalogo(),
+                'programa': self.escena.programa, 'verdad': verdad,
                 'camaras': [{**c.resumen(), **vistas[c.id]} for c in self.escena.camaras],
                 'fusion': {'estado': resultado['estado'], 'estable': bool(resultado['estable']),
                            'compatible': bool(resultado['compatible']), 'revision': resultado['revision'],
@@ -189,6 +223,17 @@ class Gemelo:
                 },
             }
             return self.ultimo
+
+    def catalogo(self):
+        if not hasattr(self, '_catalogo'):
+            self._catalogo = {}
+            for nombre, (constructor, _, _) in GUIONES.items():
+                try:
+                    escena, _ = constructor(self.vocabulario)
+                    self._catalogo[nombre] = list(escena.programa)
+                except Exception:
+                    continue
+        return dict(self._catalogo)
 
     def estado(self):
         return self.ultimo or self.avanzar(0)

@@ -9,6 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cv2
 import numpy as np
 
+from plataforma.escena_virtual import (ALTO_CAJA_PARAMETRO_MM, COLOR_MESA, FONDO_PARAMETRO,
+                                       LADO_CAJA_PARAMETRO_MM, Camara, _caja, _clase_parametro)
+from plataforma.rasterizador import Escenario
+from reconstruir import reducir_resolucion, regiones
 from plataforma.vocabulario import clase, lexema
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,6 +79,30 @@ def ficha(texto, tipo='pila', dibujo=None):
     return imagen
 
 
+def rendir_parametro(glifo, clase_pieza='otro'):
+    ejes = (np.array([1., 0., 0.]), np.array([0., 1., 0.]), np.array([0., 0., 1.]))
+    mundo = Escenario()
+    mundo.agregar(_caja(np.zeros(3), *ejes, LADO_CAJA_PARAMETRO_MM, LADO_CAJA_PARAMETRO_MM,
+                        ALTO_CAJA_PARAMETRO_MM), FONDO_PARAMETRO[clase_pieza])
+    cara = np.array([0., 0., ALTO_CAJA_PARAMETRO_MM + 0.12])
+    media = LADO_CAJA_PARAMETRO_MM / 2
+    mundo.agregar_textura([cara + [-media, media, 0], cara + [media, media, 0],
+                           cara + [media, -media, 0], cara + [-media, -media, 0]], glifo)
+    camara = Camara('ref', 'ref', [0., 0., 150.0], [0., 0., 0.], 16.0, (420, 420))
+    imagen, _, _ = mundo.rasterizar(camara.modelo(), (420, 420), COLOR_MESA)
+    return recortar_como_detector(imagen)
+
+
+def recortar_como_detector(imagen):
+    reducida = reducir_resolucion(imagen)
+    alto, ancho = reducida.shape[:2]
+    halladas = regiones(reducida)
+    if not halladas:
+        return recortar_a_tinta(imagen)
+    centro = min(halladas, key=lambda r: (r[1] - ancho / 2) ** 2 + (r[2] - alto / 2) ** 2)
+    return centro[0]
+
+
 def recortar_a_tinta(imagen, holgura=0.0):
     gris = cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
     _, tinta = cv2.threshold(gris, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
@@ -92,7 +120,7 @@ def sembrar(nombres, datos):
     os.makedirs(carpeta, exist_ok=True)
     ruta = os.path.join(datos, 'simbolos.json')
     propios = json.loads(open(ruta, encoding='utf-8').read()) if os.path.exists(ruta) else []
-    existentes = {p['lexema'] for p in propios if p.get('origen') == 'sintetico'}
+    existentes = {p['lexema'] for p in propios if p.get('tipo') != 'operacion'}
     usados = {tuple(p['dibujo']) for p in propios if p.get('dibujo')}
     disponibles = [d for d in dibujos_posibles() if d not in usados]
     nuevos = []
@@ -107,10 +135,10 @@ def sembrar(nombres, datos):
                 raise ValueError('No quedan dibujos distintos disponibles para más etiquetas de pila.')
             dibujo = disponibles.pop(0)
         archivo = 'ref_' + uuid.uuid4().hex + '.png'
-        if not cv2.imwrite(os.path.join(carpeta, archivo), recortar_a_tinta(ficha(nombre, tipo, dibujo))):
+        if not cv2.imwrite(os.path.join(carpeta, archivo), rendir_parametro(ficha(nombre, tipo, dibujo), _clase_parametro(nombre))):
             raise ValueError(f'No se pudo escribir la ficha de {nombre}.')
         entrada = {'lexema': token, 'nombre': nombre, 'tipo': tipo, 'foto': archivo,
-                   'confirmado': False, 'origen': 'sintetico', 'dibujo': list(dibujo) if dibujo else None}
+                   'confirmado': False, 'origen': 'render', 'dibujo': list(dibujo) if dibujo else None}
         propios.append(entrada)
         nuevos.append(entrada)
     temporal = ruta + '.tmp'
@@ -121,15 +149,15 @@ def sembrar(nombres, datos):
 
 
 def main():
-    p = argparse.ArgumentParser(description='Crea fichas sintéticas para que el gemelo digital tenga vocabulario. No son fotos de fichas reales.')
+    p = argparse.ArgumentParser(description='Rinde fichas de parámetro con el mismo rasterizador que las cámaras virtuales. No son fotos de fichas reales.')
     p.add_argument('nombres', nargs='+', help='etiquetas de pila o literales, por ejemplo a b n 0 1 3 5')
     p.add_argument('--datos', default=os.path.join(RAIZ, 'datos_locales', 'virtual'))
     args = p.parse_args()
     nuevos = sembrar(args.nombres, args.datos)
-    print(f'{len(nuevos)} fichas sintéticas escritas en {args.datos}')
+    print(f'{len(nuevos)} fichas de parámetro rendirizadas en {args.datos}')
     for entrada in nuevos:
         print(f"  {entrada['lexema']:<10} {entrada['tipo']:<10} {entrada['foto']}")
-    print('\nProcedencia "sintetico": sirven para el gemelo digital, no acreditan nada sobre fichas impresas.')
+    print('\nProcedencia "render": la ficha de parámetro no tiene STL propio, es una caja provisional. No acredita nada sobre fichas impresas.')
 
 
 if __name__ == '__main__':

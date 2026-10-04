@@ -87,6 +87,7 @@ class Vocabulario:
                 cuenta = procedencia.setdefault(item["lexema"], {"foto": 0, "sintetico": 0, "render": 0})
                 cuenta[referencia["origen"]] = cuenta.get(referencia["origen"], 0) + 1
         self.plantillas = {k: v for k, v in plantillas.items() if v}
+        self.rasgos = {k: [clasif.rasgos(v) for v in variantes] for k, variantes in self.plantillas.items()}
         self.procedencia = {k: v for k, v in procedencia.items() if k in self.plantillas}
 
     def ruta_foto(self, nombre):
@@ -141,7 +142,7 @@ class Vocabulario:
         if normal is None:
             return []
         with self.lock:
-            valores = [(k, max(float(cv2.matchTemplate(normal, v, cv2.TM_CCOEFF_NORMED).max()) for v in variantes)) for k, variantes in self.plantillas.items()]
+            valores = clasif.puntuar_contra(clasif.rasgos(normal), self.rasgos)
         return [{"lexema": k, "nombre": self.nombres.get(k, k), "puntaje": v} for k, v in sorted(valores, key=lambda par: par[1], reverse=True)[:4]]
 
     def imagen(self, codificada):

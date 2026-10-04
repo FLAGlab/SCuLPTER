@@ -10,30 +10,69 @@ guarda aparte y solo se usa para evaluar; nunca entra en la tubería.
 | Etapa | Estado |
 | --- | --- |
 | Geometría de cámara, pose e intrínsecos | **Real**: `geometria_fusion.modelo` y `proyectar`, la misma que la fusión |
-| Imagen RGB | **Simulada**: proyección de cuadriláteros con oclusión por orden de profundidad |
+| Imagen RGB | **Geometría real, pintado simulado**: se rasterizan los triángulos de los STL con z-buffer (`plataforma/rasterizador.py`) |
 | Detección de regiones | **Real**: `reconstruir.regiones`, umbral adaptativo y contornos |
 | Lectura de símbolos | **Real**: `Vocabulario.puntuar` y `aceptar_candidatos`, con los umbrales de producción |
 | Estado compartido y fusión | **Real**: `Fusion.actualizar`, con una corrección que el gemelo obligó a hacer (§ defecto 5) |
 | Validación y traza | **Real**: el intérprete Scala compilado, en un Web Worker |
 | Profundidad | **No implementada**: las cámaras virtuales son RGB y entregan `profundidad: None` |
-| Piezas que no computan | **Simuladas**: soportes, conectores, T y hojas impresas se rinden pero no entran en `piezas_del_programa()` |
+| Piezas que no computan | **Soporte y conector desde STL**; la T no tiene STL y es provisional; las hojas impresas son sintéticas |
+| Materiales, luz, ruido | **Simulados**: un color plano por pieza y una luz direccional fija. Sin textura de plástico, sin sombras proyectadas, sin ruido de sensor |
 
 `Fusion.actualizar` **sí cambió**. No se ajustó ningún umbral ni se tocó el orden de la
 tubería: se corrigió `_votar`, que fabricaba confianza a partir de la ausencia de lecturas.
 El detalle está en el defecto 5. La corrección es del código que usará el montaje físico, no
 de la simulación.
 
+## De dónde sale cada pieza
+
+Las cámaras virtuales no reciben cuadriláteros de otro renderizador: reciben el mismo cuadro
+que se rasteriza desde los STL del proyecto, con la pose y los intrínsecos de esa cámara.
+`plataforma/malla.py` lee los STL binarios y reproduce en numpy la interpretación que ya hacía
+`simulador_3d/src/escena/piezas.js`.
+
+| Pieza | Origen | Estado |
+| --- | --- | --- |
+| Bloque de 1 y 2 parámetros | `bloque_1_param.stl`, `bloque_2_param.stl` | Geometría real |
+| Ficha de operación (13) | `parametro.stl`, que es una lámina de impresión con las 12 fichas; PUSH es POP girado | Geometría real, **con el símbolo grabado 1 mm** |
+| Conector recto | `conector.stl`, solo el vástago de 42.5 mm | Geometría real |
+| Cuña y tuerca | `cuna.stl`, `tuerca.stl` | Geometría real |
+| Ficha de parámetro (`a`, `3`, `5`…) | **No hay STL** | Provisional: caja de 18×12×18 mm con la cara impresa, como ya la representaba la interfaz |
+| Conector en **T** | **No hay STL** | Provisional: dos vástagos de `conector.stl`. No hay medidas definitivas |
+| Mano, hoja de fondo, mesa | Sintéticas | No son piezas del montaje |
+
+Las mallas se simplifican a una rejilla de 0.6 mm antes de rasterizar (de 18 108 a unos 7 000
+triángulos por bloque). Rejillas más gruesas agrietan la malla y generan regiones falsas, así
+que 0.6 mm es el límite medido, no una preferencia. Una escena de dos bloques son 19 222
+triángulos y unos 200 ms por cámara.
+
 ## Preparar el vocabulario
+
+Un solo comando deja el gemelo reproducible desde una copia limpia:
+
+```bash
+PYTHONPATH=. python3 herramientas/preparar_gemelo.py
+```
+
+Siembra los parámetros y rinde las 13 operaciones desde `parametro.stl`. Dos copias limpias
+salen **idénticas byte a byte**; comprobado. `tests/conftest.py` lo invoca solo si falta el
+vocabulario, así que las pruebas corren desde un árbol recién clonado sin pasos manuales.
+`datos_locales/` sigue fuera de Git a propósito: son renders, no fichas fotografiadas.
 
 El catálogo real solo tiene referencias de las 13 operaciones, y son renders. Para que una
 escena tenga etiquetas y literales hay que sembrar fichas sintéticas:
 
 ```bash
-python3 herramientas/sembrar_vocabulario_virtual.py a b n tmp fib 0 1 2 3 5 99 \
+python3 herramientas/sembrar_vocabulario_virtual.py a b c n tmp fib 0 1 2 3 5 7 99 -1 -3 \
   --datos datos_locales/virtual
+python3 herramientas/sembrar_operaciones_stl.py --datos datos_locales/virtual
 ```
 
-Quedan con `origen: "sintetico"`, distinto de `foto` y de `render`. A cada etiqueta de pila se
+El segundo comando rinde las 13 fichas de operación **desde `parametro.stl` con el mismo
+rasterizador que usan las cámaras**, así que la referencia y la observación nacen del mismo
+renderizador. Ambos quedan con `origen: "render"`. Los parámetros se rinden igual, sobre su
+caja provisional. En los dos casos la referencia se recorta **pasándola por `regiones`**, el
+mismo detector que recortará la observación. A cada etiqueta de pila se
 le asigna un dibujo distinto y comprobado para que no colisione con otra. Los informes y la
 página Símbolos dicen la procedencia; una medida obtenida así **no** describe fichas impresas.
 
@@ -53,8 +92,14 @@ avanza 0.1 s, así que el paso 7 va por 0.7 s y nunca se cumple el plazo. La rec
 es correcta desde el paso 0; lo que falta es tiempo. Con doce pasos se confirma a partir del
 paso 8. Cualquier medida de confirmaciones necesita `--pasos 12` o más.
 
-Cada informe trae confirmaciones correctas, confirmaciones incorrectas, pendientes, latencia de
-lectura y de fusión, y la cobertura de cada cámara. Con `--guardar-imagenes CARPETA` se vuelcan
+Cada informe separa **confirmado correcto**, **confirmado incorrecto** y **pendiente**, además
+de la latencia de lectura y de fusión, la cobertura de cada cámara y la configuración usada
+(cuántas cámaras, dónde y con qué campo).
+
+Antes la métrica daba por correcta una lectura si coincidía el **conjunto de símbolos**, de
+modo que un programa con el orden cambiado o los operandos mal repartidos contaba como acierto.
+Ahora se compara el **programa completo**: token, orden y operandos. Una tasa de cero
+confirmaciones incorrectas solo significa algo medida así. Con `--guardar-imagenes CARPETA` se vuelcan
 los fotogramas sintéticos.
 
 ## La pantalla
@@ -81,7 +126,66 @@ En el panel derecho se elige la escena, se avanza o retrocede el armado, se repr
 reinicia, se selecciona una cámara para mover su posición, su objetivo y su campo de visión,
 se añaden o quitan cámaras y se guarda la configuración en `datos_locales/`.
 
+## Comprobado en el navegador
+
+Con `python3 servicio.py` y la página **Gemelo** abierta:
+
+| Qué | Resultado |
+| --- | --- |
+| Vista 3D desde STL | Pide `bloque_1_param`, `bloque_2_param`, `parametro`, `conector` y `cuna`; se ven el buje roscado y el grabado de cada operación |
+| Reconstrucción | `PUSH a 3 · ADD a`, estado `estable`, habilita la ejecución, sin avisos |
+| Mover una cámara | `POST gemelo/mover`; la cámara pasa de x=0 a x=340, cambia el monitor, los lectores bajan (`3`: 2→1, `a`: 4→3) y la ejecución se desactiva con el motivo concreto |
+| Evidencia por ficha | «6 de 8 cámaras la leen como PUSH · 2 no la encuadran»: ya no conviven un rótulo de coincidencia y cuatro «no la ve» |
+| Veredicto de Scala | «Veredicto sobre un programa candidato que las cámaras todavía no dan por leído. No valida el montaje» y, en el error, «es un error de ejecución del propio programa candidato» |
+| Tocar una unión | «Conector recto · Estado: estimada…» |
+| Ejemplos → Gemelo | El botón abre la escena `ejecutable` para «Sumar dos valores» |
+| Errores de consola | Ninguno |
+
+Un aviso para quien lo pruebe: cada paso tarda unos 3 s con ocho cámaras, y los clics seguidos
+sobre «paso» se descartan mientras hay una petición en vuelo. Hay que dar tiempo entre pasos
+antes de concluir que algo no se confirma.
+
+## La matriz de casos
+
+```bash
+PYTHONPATH=. python3 herramientas/matriz_gemelo.py --json datos_locales/informes/matriz.json
+```
+
+Recorre diecisiete casos y para cada uno imprime el programa reconstruido, cuántas cámaras y
+dónde, los px/mm, el estado visual, el veredicto de Scala y el tiempo por captura.
+`tests/test_matriz.py` fija las mismas expectativas, derivadas de las reglas de Scala y no de
+lo que hoy devuelve la implementación: cada caso positivo comprueba **secuencia completa,
+orden, operandos, estado de aceptación, veredicto y longitud de la traza**.
+
+Los casos negativos exigen dos cosas a la vez: cero programas confirmados que no estén sobre la
+mesa, y un motivo concreto para quedar pendiente. Cuando no hay aviso, el motivo solo puede ser
+que el montaje no se queda quieto, y la prueba lo comprueba explícitamente.
+
+## Al reproducir y al mover
+
+La reproducción pedía un paso cada 1.4 s aunque una captura tarde cerca de 3 s, así que las
+peticiones se apilaban. Ahora cada paso se encadena **cuando la respuesta anterior ha llegado**,
+y toda respuesta lleva un número de turno: una contestación atrasada se descarta en vez de
+repintar un estado más nuevo.
+
+En el detalle por ficha cada cámara cae en una de cinco situaciones, y el recuento que se
+muestra es exactamente el que la fusión usó para aceptarla:
+
+| Clase | Qué significa |
+| --- | --- |
+| `asociada` | La fusión usó esta lectura para aceptar la ficha |
+| `contradice` | Propone otro símbolo y la fusión no la usó |
+| `ilegible` | La detecta pero no puede identificarla |
+| `sin_deteccion` | La encuadra y no detecta nada ahí |
+| `fuera` | La ficha cae fuera de su encuadre |
+
 ## Procedencia de cada pieza
+
+Una pieza lleva dos listas distintas, y confundirlas era lo que hacía contradictorio el panel:
+`camaras` son las que aportaron alguna observación a esa posición, y `lectores` son las que
+además la leyeron como ese símbolo. Una cámara apartada puede seguir aportando una mancha
+ilegible; no puede seguir sosteniendo la lectura. La procedencia y el recuento del panel usan
+`lectores`.
 
 No se usa «consenso» como sinónimo de mayoría. Se distinguen cuatro situaciones:
 
@@ -139,34 +243,183 @@ del propio gemelo; el quinto es de la fusión y afecta también al montaje físi
    para que la tira lo recorte por igual en los dos lados. Esto cambia **cómo se dibuja la
    ficha simulada**, no ningún umbral del clasificador; el valor se eligió barriendo grosores,
    y la lección para las fichas impresas es que el borde debe ser ancho frente al 8 %.
-7. **Las fichas repetidas compartían identidad.** Retirar una `a` retiraba todas las `a`, y la
+7. **El detalle por cámara se calculaba antes de fusionar.** `gemelo.py` proyectaba las pistas
+   de la fusión **anterior** para explicar cada vista, así que recién cargada una escena el
+   diccionario estaba vacío y las cuatro cámaras decían «la ficha cae fuera de su encuadre»
+   mientras tenían dos o tres observaciones cada una. Ahora se proyecta después de
+   `Fusion.actualizar`, desde las piezas del resultado y con el modelo del cuadro mostrado.
+8. **Mover una cámara dejaba observaciones atrasadas.** `secuencia` e `instante` salían del
+   número de paso, y mover una cámara no avanza el paso, así que la clave `(id, secuencia)` no
+   cambiaba y `Fusion` se saltaba entera la refusión: el monitor mostraba la vista nueva y la
+   fusión seguía sosteniendo la lectura vieja. Ahora cada captura lleva un contador propio.
+   **Este defecto afecta igual al montaje real**: cualquier cuadro nuevo debe ser identificable
+   como nuevo.
+9. **Las fichas repetidas compartían identidad.** Retirar una `a` retiraba todas las `a`, y la
    lista de faltantes callaba mientras quedara una. Ahora cada ficha tiene identificador propio.
+
+## La asociación, que era el cuello de botella
+
+Reconocer bien no bastaba: las fichas se leían y aun así el programa no se reconstruía. Tres
+defectos medidos en la asociación geométrica, todos corregidos:
+
+- **La triangulación aceptaba puntos imposibles.** De 241 emparejamientos que pasaban
+  `triangular` en la escena de tres bloques, **149 (62 %) caían fuera del volumen de trabajo**,
+  entre z = −3272 mm y z = +241 mm. Ahora el emparejamiento exige que el punto caiga en la
+  banda de planos declarada, y esos 149 dejan de competir por las observaciones.
+- **El error de reproyección no mide la calidad con base corta.** El par `c4-c5`, separado
+  41.7 mm, situaba una ficha con **50 mm de error y 0.00 px de reproyección**: con poca
+  paralaje la profundidad queda indeterminada a lo largo del rayo y cualquier distancia
+  reproyecta perfecto. Por eso no sirve elegir el par de menor error.
+- **Se usaba el primer par que llegara.** El emparejamiento recorría las cámaras de dos en dos
+  y consumía observaciones por orden, así que un par malo bloqueaba al bueno. Ahora se calculan
+  todas las triangulaciones plausibles, se agrupan por proximidad (9 mm, menos de medio paso de
+  ficha) y gana el racimo con más cámaras distintas, tomando la **mediana** de sus votos. De
+  doce estimaciones de una misma ficha, la mediana cae a 3-5 mm del centro real aunque alguna
+  se vaya a 50 mm.
+
+Se añadió además un enganche por símbolo: una lectura que coincide con el lexema de una pista
+ya formada y cae cerca de su proyección se asocia a ella, aunque la geometría pura la dejara
+fuera. Sin eso, una cámara que lee bien el `5` a 24 px del centro proyectado quedaba huérfana y
+bloqueaba la ejecución entera.
+
+## Qué es ficha y qué es hardware
+
+La regla anterior descartaba toda región ilegible, lo que era cómodo pero ciego: una ficha que
+se ve y no se lee no puede desaparecer del montaje. La evidencia que las separa es **cuántas de
+las cámaras que la encuadran la reportan**:
+
+| | cámaras que la encuadran | que la reportan |
+| --- | --- | --- |
+| Buje roscado del bloque, cruce de rayos | 8-10 | 2 |
+| Ficha de operación ilegible de verdad | 6-10 | 6 y 9 |
+
+Un elemento del hardware lo sostiene solo el par que lo inventó; una ficha real la ve casi toda
+cámara que la encuadra. El corte está en la mitad, así que vale igual con dos cámaras que con
+catorce. Lo que queda por debajo se cuenta en `hardware`; lo que queda por encima sigue siendo
+una pieza pendiente que **bloquea** la ejecución.
+
+Comprobado con una operación ilegible en medio y al final de un programa de tres bloques: en
+medio no se produce programa alguno, al final se reconstruye el prefijo pero **no se confirma**.
+
+## Lo que el STL obligó a cambiar en el reconocimiento
+
+Al pasar de cuadriláteros pintados a los símbolos grabados de verdad, el reconocedor dejó de
+funcionar. Las tres correcciones son medidas, y ninguna toca `UMBRAL` ni `MARGEN`:
+
+- **Las 13 operaciones comparten cuerpo.** El glifo grabado es una fracción mínima de los
+  píxeles, así que la correlación la domina la parte común: `PUSH` contra `POP` daba **0.981**,
+  margen 0.011 frente al 0.08 exigido. No es resolución: barriendo de 6 a 12 px/mm el margen se
+  queda clavado en 0.011. Se añaden dos canales de gradiente (Sobel en x e y) junto al de
+  intensidad; como `PUSH` y `POP` son la misma flecha girada 180°, el canal vertical
+  anticorrela. `PUSH` contra `POP` baja a **0.709** y el margen mínimo entre las 13 operaciones
+  pasa de 0.011 a **0.291**.
+- **Los gradientes solos inventaban símbolos.** Una mancha cuadrada sin estructura pasaba a
+  aceptarse como `DIV` (0.527 contra 0.432). Se exige **consenso**: un lexema solo recibe la
+  media de los tres canales si gana en los tres; si no, recibe su canal más bajo. La mancha
+  queda rechazada porque los canales discrepan (`DIV`, `DIV`, `DUP`), y de paso la cobertura
+  correcta de la escena subió, porque deja de haber coincidencias casuales apretando el margen.
+- **La perspectiva deformaba la ficha.** Ahora las fichas son cajas 3D vistas en trapecio, no
+  cuadrados frontales. Antes de normalizar se rectifica el cuadrilátero de la pieza a un
+  cuadrado. La ficha `a` pasó de 0.452 **con ganador equivocado** (`tmp`) a **0.864 correcto**,
+  y `ADD` dejó de perder contra `CMP` (0.739).
+
+## Dónde hay que poner las cámaras
+
+El gemelo acabó imponiendo dos condiciones que antes no se veían:
+
+- **Todas al mismo lado.** Dos cámaras enfrentadas ven la misma ficha girada 180°, así que una
+  lee `PUSH` y la otra `POP`. Con símbolos que dependen de la orientación, un par enfrentado no
+  es redundancia: es contradicción garantizada.
+- **Dos filas, no una.** Con todas las cámaras alineadas sobre el eje de la cadena la
+  triangulación es degenerada y la fusión no coloca las fichas. La disposición por omisión son
+  dos filas a −15 mm y −70 mm del eje, a 280 mm sobre el plano de las fichas y 40° de campo.
+
+Esa disposición tiene un coste medido, y conviene saberlo antes de montar nada:
+
+- **Quitar una cámara se tolera; tapar una ficha desde arriba, no.** Apartar una de las ocho
+  deja el mismo programa aceptado. Pero las dos filas se diferencian unos 11° en ángulo de
+  visión, así que una mano sobre una ficha ciega a todas a la vez. El sistema queda pendiente y
+  no adivina, que es el fallo correcto, pero no hay vista de reserva. Recuperarla pediría una
+  cámara rasante, y una vista rasante del lado contrario volvería a confundir `PUSH` con `POP`.
+- **El margen es estrecho.** Mover las cuatro posiciones de 0/45/90/135 mm a 0/46/92/140 mm basta
+  para que `completa` deje de habilitar. La lectura funciona, pero no con holgura.
 
 ## Lo que el gemelo confirma hoy
 
-Dos programas se reconstruyen enteros a partir de las imágenes rinderizadas, sin inyectar la
-verdad conocida:
+Ocho programas distintos se reconstruyen enteros desde los píxeles rasterizados de los STL y
+llegan hasta Scala. Medido con `herramientas/matriz_gemelo.py --pasos 10`:
 
-- **`completa`** reconstruye `PUSH a 3 · ADD a` con las cinco fichas confirmadas por dos
-  cámaras cada una, y habilita la ejecución. Ese programa es sintácticamente válido y
-  **semánticamente incorrecto**: `ADD a` unario saca dos valores y solo hay uno, así que Scala
-  devuelve error de ejecución. Es un buen ejemplo de la separación que la pantalla explica:
-  las cámaras pueden estar seguras de un programa que el lenguaje rechaza.
-- **`ejecutable`** reconstruye `PUSH a 3 · PUSH a 5 · ADD a` con las ocho fichas confirmadas
-  por dos cámaras cada una, habilita la ejecución y Scala lo ejecuta en tres pasos con
-  resultado `a=[8]`.
+| Escena | Cám. | Estado visual | Scala | s/captura | Programa reconstruido |
+| --- | --- | --- | --- | --- | --- |
+| `una_instruccion` | 4 | confirma correcto | `ok a=[3]` | 1.04 | `PUSH a 3` |
+| `completa` | 8 | confirma correcto | `runtime a=[3]` | 2.92 | `PUSH a 3 · ADD a` |
+| `ejecutable` | 14 | confirma correcto | `ok a=[8]` | 6.11 | `PUSH a 3 · PUSH a 5 · ADD a` |
+| `dos_pilas` | 14 | confirma correcto | `ok a=[5,3] b=[]` | 5.80 | `PUSH a 3 · PUSH b 5 · MOV a b` |
+| `repetidos` | 10 | confirma correcto | `ok a=[3,3]` | 3.90 | `PUSH a 3 · PUSH a 3` |
+| `fondo` | 8 | confirma correcto | `runtime a=[3]` | 3.08 | `PUSH a 3 · ADD a` |
+| `desacuerdo` | 8 | confirma correcto | `runtime a=[3]` | 2.81 | `PUSH a 3 · ADD a` |
+| `contradiccion` | 9 | confirma correcto | `runtime a=[3]` | 3.20 | `PUSH a 3 · ADD a` |
+| `dos_webcams` | 2 | pendiente | — | 0.82 | `PUSH` (real: `PUSH a 3 · ADD a`) |
+| `cobertura_parcial` | 3 | **confirma incorrecto** | `ok a=[3]` | 1.27 | `PUSH a 3` (real: `PUSH a 3 · ADD a`) |
+| `oclusion`, `retirada`, `retirar_una`, `reaparece`, `movimiento`, `bloque_tapa`, `fondo_dificil` | 8-10 | pendiente | — | 2.0-4.3 | — |
 
-`tests/test_aceptacion.py` recorre las dos escenas de imagen → detección → reconocimiento →
-fusión → candidato → habilitación → Scala. El código que se envía a Scala se arma a partir de
-`resultado['instrucciones']`, no de una constante del propio test.
+Total: **8 confirmados correctos, 1 confirmado incorrecto, 8 pendientes**. El único incorrecto
+es el bloqueo que se describe más abajo.
 
-En las dieciocho escenas, con `--pasos 12`, hay **16 confirmaciones correctas y 0 incorrectas**.
-Esas 16 no son 16 programas distintos: son **cuatro escenas** (`completa`, `ejecutable`,
-`fondo` y `repetidos`) confirmadas en cada uno de los **cuatro fotogramas sintéticos** que
-quedan tras cumplirse el plazo de quietud. Las catorce restantes quedan pendientes en los doce
-pasos, que es el fallo correcto: oclusión, movimiento, retirada, desacuerdo, T, ciclo,
-montajes separados, inclinación, vertical, soportes, bloque que tapa, fondo difícil, retirada
-de una sola ficha y su reaparición.
+`runtime` no es un fallo de lectura: `PUSH a 3 · ADD a` se lee perfecto y es Scala quien lo
+rechaza, porque `ADD` unario saca dos valores y solo hay uno.
+
+Dos piezas del montaje real estorban y hubo que tratarlas:
+
+- **El buje roscado del bloque parece una ficha.** Es geometría real del STL y produce una
+  región cuadrada del tamaño de una ficha que ninguna cámara puede leer. Se separa de una ficha
+  ilegible de verdad por el respaldo relativo, como se explica más arriba.
+- **Una observación suelta que nadie puede leer no es evidencia.** Bloquea una observación
+  **leída como símbolo** que no se puede situar; una que ninguna cámara identifica se informa
+  (`sin_leer_sueltas`) y no bloquea.
+
+## Cuántas cámaras hacen falta
+
+| Programa | Bloques | Cámaras que bastan | Qué pasa con menos |
+| --- | --- | --- | --- |
+| `PUSH a 3` | 1 | 4 | — |
+| `PUSH a 3 · ADD a` | 2 | 8 | con 3 confirma solo el primer bloque; con 2 no pasa de `PUSH` |
+| `PUSH a 3 · PUSH a 5 · ADD a` | 3 | 14 | — |
+
+A 280 mm de altura y 40° de campo cada cámara da **3.1 px/mm**, y la ficha de 20 mm ocupa unos
+62 px. Con dos webcams el campo se ensancha a **2.4 px/mm** y la cadena de dos bloques ya no se
+lee: sale `PUSH` y el aviso «Instrucción 1: faltan parámetros o su asociación es ambigua». Dos
+webcams no son consenso logrado; son el límite medido.
+
+El coste en tiempo crece con las cámaras: de 1.0 s por captura con cuatro a 6.1 s con catorce.
+
+## Lo que todavía no se puede leer
+
+**Con cobertura parcial el programa se trunca en silencio.** `cobertura_parcial` deja tres
+cámaras sobre el primer bloque: el sistema confirma `PUSH a 3` con la mesa puesta en
+`PUSH a 3 · ADD a`, y no da ningún aviso, porque no tiene evidencia de que exista un segundo
+bloque.
+
+La causa está medida y **no es de cobertura geométrica**: las dos fichas del segundo bloque
+caen dentro del encuadre de dos de las tres cámaras. Lo que falla es la detección: a esa
+distancia y ese ángulo, `regiones` funde la ficha `ADD` con la `a` contigua en un solo contorno
+de 124×69 px y no entrega ninguna región. Sin región no hay observación, y ninguna regla
+geométrica posterior puede recuperar evidencia que nunca se extrajo.
+
+`tests/test_matriz.py::PrefijoSilenciosoPendienteTest` lo reproduce y comprueba dos cosas: que
+lo confirmado es un **prefijo** de la verdad y no un programa inventado, y que no hay aviso.
+Si algún día deja de confirmar, la prueba falla a propósito para que se promueva a caso
+negativo.
+
+El cambio mínimo que lo resolvería es **separar fichas contiguas en la detección**. A 20 mm de
+paso con fichas de 18-20 mm el hueco es de 2 mm, que a 3.1 px/mm son unos 6 px: el umbral
+adaptativo los puentea. Haría falta o bien más resolución efectiva sobre ese tramo (más
+cámaras, campo más estrecho), o bien un detector que parta un contorno cuya proporción y tamaño
+correspondan a dos fichas pegadas. Lo segundo es trabajo de reconocimiento, no de fusión, y
+queda fuera de este pase.
+
+Mientras no se resuelva, la lectura de un montaje solo es de fiar si la cobertura alcanza toda
+la cadena: la tabla de arriba dice cuántas vistas hacen falta por longitud de programa.
 
 ## Escenas
 
@@ -190,6 +443,13 @@ de una sola ficha y su reaparición.
 | `soportes` | Cuñas y bases junto a los bloques, que no computan |
 | `fondo` | Hoja impresa con texto junto al montaje, que no es parte del programa |
 | `fondo_dificil` | Hoja con recuadros y dígitos impresos que imitan fichas |
+| `ejemplo_condicion` | Ejemplo «condicion» de la página Ejemplos: salto condicional, tres pilas, literal negativo |
+| `ejemplo_bucle` | Ejemplo «bucle»: cinco bloques con un `JMP` que vuelve atrás |
+| `una_instruccion` | Un solo bloque: `PUSH a 3` |
+| `dos_pilas` | `PUSH a 3 · PUSH b 5 · MOV a b`, dos pilas distintas |
+| `contradiccion` | Una cámara enfrente, al otro lado de la mesa, ve la flecha girada |
+| `dos_webcams` | Solo dos cámaras, como dos webcams plausibles sobre la mesa |
+| `cobertura_parcial` | Tres cámaras que solo cubren el primer bloque |
 
 ## El fondo impreso
 
@@ -198,14 +458,17 @@ prueba si el detector los confunde con fichas. Hay dos variantes.
 
 - **`fondo`**: texto corriente junto al montaje. El detector no produce ninguna lectura falsa
   y la escena confirma igual que `completa`: 4 correctas, 0 incorrectas.
-- **`fondo_dificil`**: dígitos impresos dentro de recuadros del tamaño de una ficha. El
-  sistema **no** distingue con seguridad entre un dígito enmarcado sobre papel y una ficha, y
-  la lectura queda pendiente los doce pasos. No confirma nada incorrecto, pero tampoco
-  confirma el programa que sí está sobre la mesa.
+- **`fondo_dificil`**: dígitos impresos dentro de recuadros del tamaño de una ficha. Las
+  cámaras **sí** los detectan y llegan a parecer fichas en la imagen, pero al triangularlos
+  caen a la altura del papel (z ≈ 0) y no a la de las caras de ficha (28–40 mm), así que la
+  banda de planos los descarta: seis piezas rechazadas por altura y ninguna marca impresa entra
+  en el programa.
 
-El segundo caso es un límite real, no un fallo de esta simulación: sin profundidad, un
-recuadro impreso y una ficha se proyectan igual. Resolverlo pide altura medida (una cámara de
-profundidad o triangulación fiable entre dos vistas), no un umbral distinto.
+Esto cambió respecto a la versión anterior de esta guía, que daba el caso por irresoluble
+«sin profundidad». La profundidad está: no viene de una cámara de profundidad sino de
+triangular la misma marca desde dos vistas. Lo que faltaba no era el sensor, era usar la altura
+que la fusión ya calculaba. Queda en pie el límite de fondo: una marca impresa **a la altura de
+una ficha** —pegada sobre un bloque, por ejemplo— seguiría sin distinguirse.
 
 ## Uniones: estimadas, nunca observadas
 

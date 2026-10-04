@@ -20,6 +20,11 @@ def ganador(candidatos):
     return aceptar_candidatos(candidatos)
 
 
+RADIO_RACIMO = 9.0
+ALCANCE_MISMO_SIMBOLO = 45.0
+RESPALDO_MINIMO = 0.5
+
+
 def asociar_unicos(costes, limite, margen):
     candidatos = []
     for i in range(costes.shape[0]):
@@ -178,6 +183,7 @@ class Fusion:
             self.ultimo_instante = None
             self.vistas_ahora = set()
             self.sin_localizar = 0
+            self.sin_localizar_leidas = 0
             self.resultado = {'id':'fusion', 'ambito':'programa', 'estado':'incompleta', 'estable':False, 'compatible':False, 'instrucciones':[], 'piezas':[], 'avisos':['Esperando observaciones de las cámaras.'], 'sin_localizar':0, 'camaras':[], 'desfase_ms':None, 'firma':'', 'conexiones_confirmadas':False}
             self.revision += 1
             self.resultado['revision'] = self.revision
@@ -217,6 +223,9 @@ class Fusion:
                     cuadros.append({**cuadro, 'id': f['id'], 'modelo': f['modelo']})
                 else:
                     avisos.append(f"{f['nombre']}: imagen fuera de la ventana de sincronización.")
+        banda = (config.get('plano_min_mm'), config.get('plano_max_mm'))
+        def en_volumen(punto):
+            return None in banda or banda[0] <= float(punto[2]) <= banda[1]
         instante = max((c['instante'] for c in cuadros), default=ahora)
         discontinuo = self.ultimo_instante is None or instante-self.ultimo_instante > .35
         self.ultimo_instante = instante
@@ -247,25 +256,43 @@ class Fusion:
                 if puntos and max(np.linalg.norm(p-np.mean(puntos, axis=0)) for p in puntos) <= 8:
                     medidas.append({'posicion': np.mean(puntos, axis=0), 'obs': [n], 'sensores': sensores, 'metodo': 'profundidad'})
                     usadas.add(n)
+            sueltos = []
             for ca, cb in itertools.combinations(modelos, 2):
-                aa = [i for i, o in enumerate(obs) if o['camara'] == ca and i not in usadas]
-                bb = [i for i, o in enumerate(obs) if o['camara'] == cb and i not in usadas]
-                costes = np.full((len(aa), len(bb)), np.inf)
-                pares = {}
-                for i, na in enumerate(aa):
-                    for j, nb in enumerate(bb):
+                for na in [i for i, o in enumerate(obs) if o['camara'] == ca and i not in usadas]:
+                    for nb in [i for i, o in enumerate(obs) if o['camara'] == cb and i not in usadas]:
                         a, b = obs[na], obs[nb]
                         ga, gb = ganador(a['candidatos']), ganador(b['candidatos'])
                         if ga and gb and (ga in OPERACIONES) != (gb in OPERACIONES):
                             continue
+                        if ga and gb and ga != gb:
+                            continue
                         par = triangular(modelos[ca], [a['x'], a['y']], modelos[cb], [b['x'], b['y']])
-                        if par is not None:
-                            costes[i, j] = par[1] + (2 if ga and gb and ga != gb else 0)
-                            pares[i, j] = par[0]
-                for i, j in asociar_unicos(costes, 3, 1):
-                    na, nb = aa[i], bb[j]
-                    medidas.append({'posicion': pares[i, j], 'obs': [na, nb], 'sensores': {ca, cb}, 'metodo': 'triangulacion'})
-                    usadas.update([na, nb])
+                        if par is not None and en_volumen(par[0]):
+                            sueltos.append({'posicion': par[0], 'obs': (na, nb), 'error': par[1]})
+            racimos = []
+            for voto in sorted(sueltos, key=lambda v: v['error']):
+                for r in racimos:
+                    if np.linalg.norm(r['centro']-voto['posicion']) < RADIO_RACIMO:
+                        r['votos'].append(voto)
+                        r['centro'] = np.median([v['posicion'] for v in r['votos']], axis=0)
+                        break
+                else:
+                    racimos.append({'centro': voto['posicion'], 'votos': [voto]})
+            def respaldo(r):
+                return len({obs[n]['camara'] for v in r['votos'] for n in v['obs']})
+            for r in sorted(racimos, key=lambda r: (-respaldo(r), np.median([v['error'] for v in r['votos']]))):
+                propios = [n for v in r['votos'] for n in v['obs'] if n not in usadas]
+                por_camara = {}
+                for n in propios:
+                    por_camara.setdefault(obs[n]['camara'], n)
+                if len(por_camara) < 2:
+                    continue
+                elegidos = sorted(por_camara.values())
+                centro = np.median([v['posicion'] for v in r['votos']
+                                    if all(n in elegidos for n in v['obs'])] or [r['centro']], axis=0)
+                medidas.append({'posicion': centro, 'obs': elegidos,
+                                'sensores': set(por_camara), 'metodo': 'triangulacion'})
+                usadas.update(elegidos)
             grupos = []
             for med in medidas:
                 camaras = {obs[i]['camara'] for i in med['obs']}
@@ -289,6 +316,28 @@ class Fusion:
                 for i, j in asociar_unicos(costes, 5, 2):
                     elegibles[i]['obs'].append(indices[j])
                     usadas.add(indices[j])
+            for cam, m in modelos.items():
+                libres = [i for i, o in enumerate(obs)
+                          if i not in usadas and o['camara'] == cam and o['lexema'] != SIN_LEER]
+                for n in libres:
+                    mejores = []
+                    for g in grupos:
+                        if cam in {obs[i]['camara'] for i in g['obs']}:
+                            continue
+                        leidos = [obs[i]['lexema'] for i in g['obs'] if obs[i]['lexema'] != SIN_LEER]
+                        if not leidos or max(set(leidos), key=leidos.count) != obs[n]['lexema']:
+                            continue
+                        uv, z = proyectar(m, [g['posicion']])
+                        if z[0] <= 0:
+                            continue
+                        mejores.append((float(np.linalg.norm(uv[0]-[obs[n]['x'], obs[n]['y']])), g))
+                    mejores.sort(key=lambda par: par[0])
+                    if not mejores or mejores[0][0] > ALCANCE_MISMO_SIMBOLO:
+                        continue
+                    if len(mejores) > 1 and mejores[1][0]-mejores[0][0] < ALCANCE_MISMO_SIMBOLO:
+                        continue
+                    mejores[0][1]['obs'].append(n)
+                    usadas.add(n)
             pistas = list(self.pistas.values())
             costes = np.full((len(grupos), len(pistas)), np.inf)
             for i, g in enumerate(grupos):
@@ -319,23 +368,47 @@ class Fusion:
             self.vistas_ahora = vistas_ahora
             pendientes = len(obs)-len(usadas)+descartadas
             self.sin_localizar = pendientes
+            self.sin_localizar_leidas = sum(1 for n, o in enumerate(obs)
+                                            if n not in usadas and o['lexema'] != SIN_LEER) + descartadas
         else:
             pendientes = getattr(self, 'sin_localizar', 0)
-        piezas = []
+        leidas_sueltas = getattr(self, 'sin_localizar_leidas', 0)
+        def encuadran(punto):
+            cuantas = 0
+            for c in cuadros:
+                uv, z = proyectar(c['modelo'], [punto])
+                ancho, alto = c['resolucion']
+                if z[0] > 0 and 0 <= uv[0][0] < ancho and 0 <= uv[0][1] < alto:
+                    cuantas += 1
+            return cuantas
+
+        piezas, fuera_de_plano, sin_lectura, hardware = [], 0, 0, 0
         for pista in self.pistas.values():
+            if not en_volumen(pista['posicion']):
+                fuera_de_plano += 1
+                continue
+            if pista['lexema'] == SIN_LEER:
+                vistas = encuadran(pista['posicion'])
+                if vistas and len(pista.get('sensores', [])) / vistas < RESPALDO_MINIMO:
+                    hardware += 1
+                    continue
+                sin_lectura += 1
             edad = ahora-pista.get('ultima', -10)
             actual = pista['id'] in getattr(self, 'vistas_ahora', set()) and any(c['id'] in pista.get('sensores', []) for c in cuadros) and 0 <= edad <= .35
             estado = pista.get('estado', 'ambigua') if actual else 'no_observada'
             if not actual and any(oculto(c['modelo'], pista['posicion'], c['profundidad']) for c in cuadros):
                 estado = 'oculta'
+            lectores = sorted(c for c, o in pista['lecturas'].items() if o['lexema'] == pista['lexema']
+                              and pista['lexema'] != SIN_LEER)
             piezas.append({'id': pista['id'], 'lexema': pista['lexema'], 'posicion': pista['posicion'].tolist(), 'estado': estado,
-                           'candidatos': pista.get('candidatos', []), 'camaras': sorted(pista['lecturas']), 'metodo': pista.get('metodo'),
+                           'candidatos': pista.get('candidatos', []), 'camaras': sorted(pista['lecturas']),
+                           'lectores': lectores, 'metodo': pista.get('metodo'),
                            'edad_ms': max(0, round(edad*1000))})
         instrucciones, problemas = reconstruir(piezas, pasos_medidos(config)) if piezas else ([], ['Esperando piezas localizables en las cámaras.'])
         if piezas and any(p['estado'] != 'confirmada' for p in piezas):
             problemas.append('Hay piezas ocultas, ambiguas o sin observación reciente. Se conserva la última lectura como provisional.')
-        if pendientes:
-            problemas.append(f'{pendientes} observaciones aún no tienen una posición compartida inequívoca.')
+        if leidas_sueltas:
+            problemas.append(f'{leidas_sueltas} símbolos leídos aún no tienen una posición compartida inequívoca.')
         if not config.get('medido'):
             problemas.append('Mide y guarda el paso entre bloques antes de reconstruir el orden.')
         if avisos:
@@ -351,6 +424,8 @@ class Fusion:
         estado = 'estable' if estable else 'incompleta' if problemas else 'estabilizando'
         contenido = {'id': 'fusion', 'ambito': 'programa', 'estado': estado, 'estable': estable, 'compatible': not problemas, 'instrucciones': instrucciones,
                      'piezas': piezas, 'avisos': list(dict.fromkeys(problemas)), 'sin_localizar': pendientes,
+                     'fuera_de_plano': fuera_de_plano, 'sin_lectura': sin_lectura, 'hardware': hardware,
+                     'sin_leer_sueltas': pendientes - leidas_sueltas,
                      'camaras': [c['id'] for c in cuadros], 'desfase_ms': round((max(c['instante'] for c in cuadros)-min(c['instante'] for c in cuadros))*1000) if cuadros else None,
                      'firma': json.dumps([[(i['token'], i['operandos']) for i in instrucciones], [(id, np.round(p, 1).tolist()) for id, p in self.ancla.items()]], sort_keys=True), 'conexiones_confirmadas': False}
         self.revision += 1

@@ -23,7 +23,36 @@ def rotar(imagen, angulo):
     return cv2.warpAffine(imagen, matriz, (ancho, alto), borderValue=255)
 
 
+AREA_PIEZA = 0.25
+LADO_PIEZA_MINIMO = 12
+
+
+def rectificar(gris):
+    alto, ancho = gris.shape
+    suave = cv2.GaussianBlur(gris, (5, 5), 0)
+    _, binaria = cv2.threshold(suave, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    contornos, _ = cv2.findContours(binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contornos:
+        return gris
+    mayor = max(contornos, key=cv2.contourArea)
+    if cv2.contourArea(mayor) < AREA_PIEZA * alto * ancho:
+        return gris
+    caja = cv2.boxPoints(cv2.minAreaRect(mayor))
+    suma, resta = caja.sum(axis=1), np.diff(caja, axis=1).ravel()
+    orden = np.float32([caja[np.argmin(suma)], caja[np.argmin(resta)],
+                        caja[np.argmax(suma)], caja[np.argmax(resta)]])
+    if len({tuple(p) for p in orden}) != 4:
+        return gris
+    lado = int(max(np.linalg.norm(orden[0] - orden[1]), np.linalg.norm(orden[1] - orden[2])))
+    if lado < LADO_PIEZA_MINIMO:
+        return gris
+    destino = np.float32([[0, 0], [lado - 1, 0], [lado - 1, lado - 1], [0, lado - 1]])
+    return cv2.warpPerspective(gris, cv2.getPerspectiveTransform(orden, destino), (lado, lado),
+                               flags=cv2.INTER_LINEAR, borderValue=255)
+
+
 def normalizar(gris):
+    gris = rectificar(gris)
     alto, ancho = gris.shape
     if alto < 8 or ancho < 8:
         return None
@@ -44,6 +73,33 @@ def normalizar(gris):
     oy, ox = (lado - recorte.shape[0]) // 2, (lado - recorte.shape[1]) // 2
     cuadrado[oy : oy + recorte.shape[0], ox : ox + recorte.shape[1]] = recorte
     return cv2.resize(cuadrado, (LADO, LADO), interpolation=cv2.INTER_AREA)
+
+
+def rasgos(canonico):
+    f = canonico.astype(np.float32) / 255.0
+    return (f, cv2.Sobel(f, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(f, cv2.CV_32F, 0, 1, ksize=3))
+
+
+def canales(observado, referencia):
+    return [float(cv2.matchTemplate(a, b, cv2.TM_CCOEFF_NORMED).max())
+            for a, b in zip(observado, referencia)]
+
+
+def comparar(observado, referencia):
+    return float(np.mean(canales(observado, referencia)))
+
+
+def puntuar_contra(observado, referencias):
+    medidas = {}
+    for lexema, variantes in referencias.items():
+        mejor = max(variantes, key=lambda v: comparar(observado, v))
+        medidas[lexema] = canales(observado, mejor)
+    if not medidas:
+        return []
+    lideres = {max(medidas, key=lambda k: medidas[k][c]) for c in range(len(next(iter(medidas.values()))))}
+    acuerdo = next(iter(lideres)) if len(lideres) == 1 else None
+    return sorted(((lexema, float(np.mean(v)) if lexema == acuerdo else float(np.min(v)))
+                   for lexema, v in medidas.items()), key=lambda par: par[1], reverse=True)
 
 
 def tabla_simbolos() -> dict[str, str]:
@@ -67,7 +123,7 @@ def cargar() -> dict[str, list["cv2.typing.MatLike"]]:
         if imagen is None:
             continue
         variantes = [normalizar(rotar(imagen, angulo)) for angulo in ANGULOS]
-        variantes = [v for v in variantes if v is not None]
+        variantes = [rasgos(v) for v in variantes if v is not None]
         if not variantes:
             print(f"[clasificador] {archivo}: sin trazo reconocible, se ignora")
             continue
@@ -94,11 +150,7 @@ def puntuar(recorte) -> list[tuple[str, float]]:
     if canonico is None:
         return []
 
-    puntajes = {
-        lexema: max(float(cv2.matchTemplate(canonico, v, cv2.TM_CCOEFF_NORMED).max()) for v in variantes)
-        for lexema, variantes in _REFERENCIAS.items()
-    }
-    return sorted(puntajes.items(), key=lambda par: par[1], reverse=True)
+    return puntuar_contra(rasgos(canonico), _REFERENCIAS)
 
 
 def aceptar_candidatos(candidatos):

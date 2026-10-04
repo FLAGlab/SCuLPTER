@@ -137,13 +137,17 @@ class FusionTest(unittest.TestCase):
         r = self.fusion.actualizar(self.escena(10.), CONFIGURACION,10.)
         self.assertTrue(any('Mide' in a for a in r['avisos']))
 
-    def test_puntos_repetidos_epipolares_quedan_pendientes(self):
+    def test_puntos_repetidos_epipolares_se_resuelven_sin_cruzarse(self):
         p = [('a', [-20,0,20]),('a',[20,0,20])]
         a = fuente('a', [-100,0,600], p)
         b = fuente('b', [100,0,600], p)
         r = self.fusion.actualizar([a,b],CONFIG,10.)
-        self.assertEqual(len(r['piezas']),0)
-        self.assertEqual(r['sin_localizar'],4)
+        sitios = sorted(round(x['posicion'][0]) for x in r['piezas'])
+        self.assertEqual(sitios, [-20, 20], 'dos fichas iguales sobre la epipolar no pueden cruzarse')
+        self.assertEqual(len(r['piezas']), 2, 'ni desdoblarse en pistas de más')
+        self.assertEqual(r['sin_localizar'], 0)
+        for pieza in r['piezas']:
+            self.assertEqual(len(pieza['camaras']), 2)
 
     def test_reinicio_elimina_memoria_y_estabilidad(self):
         self.estable()

@@ -22,7 +22,10 @@ FAMILIA = {'PUSH': 'bin', 'MOV': 'bin', 'ADD': 'ari', 'SUB': 'ari', 'MUL': 'ari'
 COLOR_MANO = (150, 170, 205)
 
 RAIZ = Path(__file__).resolve().parents[1]
-CONFIGURACION_PASOS = {'modo': 'fusion', 'paso_mm': PASO_CORTO_MM, 'paso_2_mm': PASO_LARGO_MM, 'medido': True}
+PLANO_FICHA_MIN_MM = 22.0
+PLANO_FICHA_MAX_MM = 56.0
+CONFIGURACION_PASOS = {'modo': 'fusion', 'paso_mm': PASO_CORTO_MM, 'paso_2_mm': PASO_LARGO_MM, 'medido': True,
+                       'plano_min_mm': PLANO_FICHA_MIN_MM, 'plano_max_mm': PLANO_FICHA_MAX_MM}
 
 
 def intrinsecos(fov_grados, resolucion):
@@ -374,40 +377,135 @@ def _pintar_ficha(lienzo, esquinas2d, plantilla):
     lienzo[mascara] = proyectada[mascara]
 
 
-def render(escena, camara):
+LADO_CAJA_PARAMETRO_MM = 18.0
+ALTO_CAJA_PARAMETRO_MM = 12.0
+COLOR_OPERACION = (158, 155, 67)
+COLOR_GRABADO = (54, 41, 8)
+COLOR_CONECTOR_PIEZA = (236, 236, 236)
+COLOR_TE_PIEZA = (238, 232, 224)
+COLOR_SOPORTE_PIEZA = (170, 186, 196)
+FONDO_PARAMETRO = {'numero': (128, 186, 219), 'etiqueta': (210, 198, 164), 'otro': (176, 185, 187)}
+
+
+def _ejes(avance, lateral, normal, orden):
+    base = {'a': avance, 'l': lateral, 'n': normal}
+    return np.stack([base[k] for k in orden])
+
+
+def _colocar(triangulos, origen, avance, lateral, normal, orden='aln'):
+    return triangulos @ _ejes(avance, lateral, normal, orden) + np.asarray(origen, float)
+
+
+def _caja(centro, avance, lateral, normal, largo, ancho, alto):
+    u, v, w = avance * largo / 2, lateral * ancho / 2, normal * alto
+    base = np.asarray(centro, float)
+    p = [base - u - v, base + u - v, base + u + v, base - u + v,
+         base - u - v + w, base + u - v + w, base + u + v + w, base - u + v + w]
+    caras = [(0, 1, 2, 3), (4, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+    tris = []
+    for cara in caras:
+        if len(cara) == 4:
+            a, b, c, d = cara
+            tris += [[p[a], p[b], p[c]], [p[a], p[c], p[d]]]
+        else:
+            a, b, c = cara
+            tris += [[p[a], p[b], p[c]]]
+    return np.array(tris)
+
+
+def _cilindro(centro, radio, alto, lados=18):
+    base = np.asarray(centro, float)
+    angulos = np.linspace(0, 2 * np.pi, lados, endpoint=False)
+    aro = np.stack([radio * np.cos(angulos), radio * np.sin(angulos), np.zeros(lados)], axis=1)
+    bajo, arriba = base + aro, base + aro + np.array([0., 0., alto])
+    tapa = base + np.array([0., 0., alto])
+    tris = []
+    for i in range(lados):
+        j = (i + 1) % lados
+        tris += [[bajo[i], bajo[j], arriba[j]], [bajo[i], arriba[j], arriba[i]], [arriba[i], arriba[j], tapa]]
+    return np.array(tris)
+
+
+def _clase_parametro(lexema):
+    if lexema.lstrip('-').isdigit() or lexema == 'nil':
+        return 'numero'
+    return 'etiqueta' if lexema.isalpha() else 'otro'
+
+
+def escenario_de(escena, detalle=None):
+    from plataforma import malla
+    from plataforma.rasterizador import Escenario
+    rejilla = (detalle or {}).get('rejilla', 0.6)
+    fino = (detalle or {}).get('rejilla_grabado', 0.3)
+    mundo = Escenario()
+    centro_mesa = centro_de(escena.fichas)
+    lado = 900.0
+    u = np.array([lado, 0., 0.])
+    v = np.array([0., lado, 0.])
+    raiz = np.array([centro_mesa[0], centro_mesa[1], 0.])
+    mundo.agregar(np.array([[raiz - u - v, raiz + u - v, raiz + u + v], [raiz - u - v, raiz + u + v, raiz - u + v]]),
+                  COLOR_MESA)
+    for fondo in escena.fondos:
+        if fondo.imagen is not None:
+            mundo.agregar_textura(fondo.esquinas(), fondo.imagen)
+        else:
+            e = fondo.esquinas()
+            mundo.agregar(np.array([[e[0], e[1], e[2]], [e[0], e[2], e[3]]]), fondo.color)
+    for cuerpo in escena.cuerpos:
+        capacidad = 2 if cuerpo.largo > 75 else 1
+        origen = cuerpo.centro - cuerpo.avance * (cuerpo.largo / 2 - 35.5)
+        mundo.agregar(_colocar(malla.bloque(capacidad, rejilla), origen,
+                               cuerpo.avance, cuerpo.lateral, cuerpo.normal, 'anl'), cuerpo.color)
+    for conexion in escena.conexiones:
+        if conexion['tipo'] != 'conector':
+            continue
+        avance = normalizar_vector(conexion['avance'])
+        _, lateral, normal = marco_desde_avance(avance)
+        asiento = np.asarray(conexion['centro'], float) + normal * 10.5
+        mundo.agregar(_colocar(malla.conector(), asiento, avance, lateral, normal, 'anl'), COLOR_CONECTOR_PIEZA)
+    for te in escena.tes:
+        _, lateral, normal = marco_desde_avance(te.avance)
+        asiento = te.centro + normal * 10.5
+        mundo.agregar(_colocar(malla.conector(), asiento, te.avance, lateral, normal, 'anl'), COLOR_TE_PIEZA)
+        rama = normalizar_vector(te.rama)
+        _, lr, nr = marco_desde_avance(rama)
+        mundo.agregar(_colocar(malla.conector(), asiento + rama * malla.LARGO_CONECTOR_MM / 2,
+                               rama, lr, nr, 'anl'), COLOR_TE_PIEZA)
+    for soporte in escena.soportes:
+        mundo.agregar(_colocar(malla.cuna(rejilla), soporte.centro,
+                               np.array([1., 0., 0.]), np.array([0., 1., 0.]), np.array([0., 0., 1.]), 'anl'),
+                      COLOR_SOPORTE_PIEZA)
+    for ficha in escena.visibles():
+        piezas = malla.operacion(ficha.lexema, rejilla_grabado=fino)
+        if piezas is not None:
+            cuerpo, grabado = piezas
+            mundo.agregar(_colocar(cuerpo, ficha.centro, ficha.avance, ficha.lateral, ficha.normal), COLOR_OPERACION)
+            mundo.agregar(_colocar(grabado, ficha.centro, ficha.avance, ficha.lateral, ficha.normal), COLOR_GRABADO)
+            continue
+        color = FONDO_PARAMETRO[_clase_parametro(ficha.lexema)]
+        mundo.agregar(_caja(ficha.centro, ficha.avance, ficha.lateral, ficha.normal,
+                            LADO_CAJA_PARAMETRO_MM, LADO_CAJA_PARAMETRO_MM, ALTO_CAJA_PARAMETRO_MM), color)
+        cara = ficha.centro + ficha.normal * (ALTO_CAJA_PARAMETRO_MM + 0.12)
+        u = ficha.avance * LADO_CAJA_PARAMETRO_MM / 2
+        w = ficha.lateral * LADO_CAJA_PARAMETRO_MM / 2
+        mundo.agregar_textura([cara - u + w, cara + u + w, cara + u - w, cara - u - w],
+                              escena.plantilla(ficha.lexema))
+    for mano in escena.manos:
+        mundo.agregar(_cilindro(mano.centro, mano.radio, mano.alto), COLOR_MANO)
+    return mundo
+
+
+def render(escena, camara, detalle=None, mundo=None):
     m = camara.modelo()
     if m is None:
         raise ValueError(f'La cámara {camara.id} no tiene una pose utilizable.')
-    ancho, alto = camara.resolucion
-    lienzo = np.full((alto, ancho, 3), COLOR_MESA, np.uint8)
-    from plataforma.geometria_fusion import proyectar
-    dibujables = []
-    for objeto in escena.objetos():
-        esquinas = objeto.esquinas()
-        pixeles, z = proyectar(m, esquinas)
-        if np.any(z <= 1) or not np.isfinite(pixeles).all():
-            continue
-        if np.max(np.abs(pixeles)) > 20000:
-            continue
-        dibujables.append((float(np.mean(z)), objeto, pixeles))
-    for _, objeto, pixeles in sorted(dibujables, key=lambda d: (-d[0], isinstance(d[1], Ficha))):
-        if isinstance(objeto, Ficha):
-            area = abs(cv2.contourArea(np.rint(pixeles).astype(np.int32)))
-            if area < 60:
-                continue
-            _pintar_ficha(lienzo, pixeles, escena.plantilla(objeto.lexema))
-        elif isinstance(objeto, Fondo) and objeto.imagen is not None:
-            _pintar_ficha(lienzo, pixeles, objeto.imagen)
-        elif isinstance(objeto, Mano):
-            _pintar_quad(lienzo, pixeles, COLOR_MANO)
-        else:
-            _pintar_quad(lienzo, pixeles, objeto.color, objeto.borde)
+    lienzo, _, _ = (mundo or escenario_de(escena, detalle)).rasterizar(m, camara.resolucion, COLOR_MESA)
     return lienzo
 
 
-def cuadro(escena, camara, vocabulario, instante, secuencia):
+def cuadro(escena, camara, vocabulario, instante, secuencia, mundo=None):
     from plataforma.lectura import leer_cuadro
-    imagen = render(escena, camara)
+    imagen = render(escena, camara, mundo=mundo)
     _, lecturas = leer_cuadro(imagen, vocabulario)
     return imagen, {'secuencia': secuencia, 'instante': instante, 'resolucion': list(camara.resolucion),
                     'observaciones': [l['observacion'] for l in lecturas], 'profundidad': None}
@@ -415,8 +513,9 @@ def cuadro(escena, camara, vocabulario, instante, secuencia):
 
 def fuentes(escena, vocabulario, instante, secuencia):
     salida, imagenes = [], {}
+    mundo = escenario_de(escena)
     for camara in escena.camaras:
-        imagen, marco = cuadro(escena, camara, vocabulario, instante, secuencia)
+        imagen, marco = cuadro(escena, camara, vocabulario, instante, secuencia, mundo=mundo)
         imagenes[camara.id] = imagen
         salida.append({'id': camara.id, 'nombre': camara.nombre, 'estado': 'conectada', 'virtual': True,
                        'pose': camara.pose(), 'intrinsecos': camara.intrinsecos(), 'historial': [marco]})
@@ -430,23 +529,46 @@ def centro_de(fichas):
     return np.array([float(puntos[:, 0].mean()), float(puntos[:, 1].mean()), 20.])
 
 
-def camaras_por_omision(centro=(60., 0., 20.), fichas=None, fov=47., altura=138., separacion=35.):
+ALTURA_CAMARA_MM = 280.0
+FOV_CAMARA = 40.0
+PASO_CAMARA_MM = 46.0
+DESVIOS_CAMARA_MM = (-15.0, -70.0)
+CAMARAS_MAXIMAS = 16
+
+
+def camaras_por_omision(centro=(60., 0., 20.), fichas=None, fov=FOV_CAMARA, altura=ALTURA_CAMARA_MM,
+                        separacion=PASO_CAMARA_MM):
     centro = np.asarray(centro, float)
-    xs = sorted(f.centro[0] for f in fichas) if fichas else [centro[0]]
-    campo = 2 * altura * np.tan(np.radians(fov) / 2)
-    extension = xs[-1] - xs[0]
-    if extension <= campo / 2:
-        focos = [float(np.mean(xs))]
+    if fichas:
+        puntos = np.array([f.centro for f in fichas], float)
+        minimo, maximo = puntos.min(axis=0), puntos.max(axis=0)
     else:
-        cuantos = int(np.ceil(extension / (campo * .75)))
-        primero, ultimo = xs[0] + campo / 4, xs[-1] - campo / 4
-        focos = [float(primero + (ultimo - primero) * k / max(1, cuantos - 1)) for k in range(max(2, cuantos))]
+        minimo = maximo = centro
+    altura_mesa = float(maximo[2]) if fichas else float(centro[2])
+
+    def rejilla(a, b):
+        extension = float(b - a)
+        cuantos = max(1, int(np.ceil(extension / separacion)) + 1)
+        if cuantos == 1:
+            return [float((a + b) / 2)]
+        return [float(a + extension * k / (cuantos - 1)) for k in range(cuantos)]
+
+    xs, ys = rejilla(minimo[0], maximo[0]), rejilla(minimo[1], maximo[1])
+    while len(xs) * len(ys) * len(DESVIOS_CAMARA_MM) > CAMARAS_MAXIMAS and (len(xs) > 2 or len(ys) > 2):
+        if len(xs) >= len(ys) and len(xs) > 2:
+            xs = xs[::2]
+        elif len(ys) > 2:
+            ys = ys[::2]
+        else:
+            break
     camaras = []
-    for k, x in enumerate(focos):
-        mira = np.array([float(x), centro[1], centro[2]])
-        for j, dy in enumerate((-separacion, separacion)):
-            camaras.append(Camara('par%d%s' % (k + 1, 'ab'[j]), 'Par %d %s' % (k + 1, 'izquierda' if j == 0 else 'derecha'),
-                                  mira + [0., dy, altura], mira, fov))
+    for desvio in DESVIOS_CAMARA_MM:
+        for y in ys:
+            for x in xs:
+                mira = np.array([x, y, altura_mesa])
+                n = len(camaras) + 1
+                camaras.append(Camara('c%d' % n, 'Cámara %d' % n,
+                                      mira + [0., desvio, altura], mira, fov))
     return camaras
 
 

@@ -74,17 +74,35 @@ class EvidenciaPorCamaraTest(unittest.TestCase):
                  for m, c in zip(marcos, escena.camaras)}
         self.assertEqual(ahora[tapada.id], [], 'la cámara tapada no puede reportar lo que no ve')
 
-    def test_otra_camara_aporta_la_evidencia_que_la_tapada_pierde(self):
+    def test_un_banco_cenital_no_ve_por_detras_de_una_mano(self):
         escena, _ = completa(self.vocabulario)
         objetivo = next(f for f in escena.fichas if f.lexema == 'PUSH')
-        tapada, testigo = escena.camaras[0], escena.camaras[1]
-        escena.manos = [tapar(tapada, objetivo.centro)]
         marcos, _ = fuentes(escena, self.vocabulario, 10.0, 1)
         por_id = {m['id']: m['historial'][0] for m in marcos}
-        self.assertEqual(observaciones_cerca(por_id[tapada.id], tapada, objetivo.centro), [],
-                         'la cámara tapada no puede reportar lo que no ve')
-        self.assertTrue(observaciones_cerca(por_id[testigo.id], testigo, objetivo.centro),
-                        'la otra cámara conserva la línea de visión y debe aportar esa evidencia')
+        ven = [c for c in escena.camaras if observaciones_cerca(por_id[c.id], c, objetivo.centro)]
+        self.assertGreaterEqual(len(ven), 2, 'la disposición debe darle a la ficha más de una vista')
+        escena.manos = [tapar(ven[0], objetivo.centro)]
+        marcos, _ = fuentes(escena, self.vocabulario, 10.1, 2)
+        por_id = {m['id']: m['historial'][0] for m in marcos}
+        quedan = [c.id for c in ven if observaciones_cerca(por_id[c.id], c, objetivo.centro)]
+        self.assertEqual(quedan, [],
+                         'todas las cámaras miran desde arriba y del mismo lado: una mano sobre '
+                         'la ficha las ciega a todas. Quitar una cámara sí se tolera; tapar una '
+                         'ficha desde arriba, no.')
+
+    def test_tapar_una_ficha_deja_la_lectura_pendiente_sin_adivinar(self):
+        escena, _ = completa(self.vocabulario)
+        objetivo = next(f for f in escena.fichas if f.lexema == 'PUSH')
+        escena.manos = [tapar(escena.camaras[0], objetivo.centro)]
+        fusion = Fusion()
+        resultado = None
+        for paso in range(12):
+            instante = 10.0 + paso * .1
+            marcos, _ = fuentes(escena, self.vocabulario, instante, paso + 1)
+            resultado = fusion.actualizar(marcos, CONFIGURACION_PASOS, instante)
+        self.assertFalse(puede_ejecutar(resultado))
+        self.assertNotIn('PUSH', [p['lexema'] for p in resultado['piezas'] if p['estado'] == 'confirmada'])
+        self.assertTrue(resultado['avisos'])
 
     def test_la_evidencia_recuperada_llega_a_la_fusion(self):
         escena, _ = completa(self.vocabulario)

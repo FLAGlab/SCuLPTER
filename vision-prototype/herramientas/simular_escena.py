@@ -43,15 +43,20 @@ def correr(nombre, vocabulario, pasos=12, guardar=None):
         duraciones['fusion'].append((fin - medio) * 1000)
         verdad = sorted(escena.verdad())
         leido = sorted(p['lexema'] for p in resultado['piezas'])
+        programa_leido = [' '.join([i['token'], *i['operandos']]) for i in resultado['instrucciones']]
+        programa_real = list(escena.programa)
         habilita = puede_ejecutar(resultado)
-        acierta = habilita and debe_ejecutar and leido == verdad
-        falla = habilita and (not debe_ejecutar or leido != verdad)
+        igual = programa_leido == programa_real and leido == verdad
+        acierta = habilita and debe_ejecutar and igual
+        falla = habilita and not acierta
         correctas += acierta
         incorrectas += falla
         pendientes += not habilita
         detalle.append({'paso': paso, 'estado': resultado['estado'], 'habilita_ejecucion': habilita,
                         'confirmacion_incorrecta': bool(falla), 'verdad': verdad, 'leido': leido,
-                        'programa': [' '.join([i['token'], *i['operandos']]) for i in resultado['instrucciones']],
+                        'programa': programa_leido, 'programa_real': programa_real,
+                        'coincide_programa': bool(programa_leido == programa_real),
+                        'coincide_piezas': bool(leido == verdad),
                         'avisos': resultado['avisos']})
         if guardar:
             os.makedirs(guardar, exist_ok=True)
@@ -60,6 +65,9 @@ def correr(nombre, vocabulario, pasos=12, guardar=None):
     return {'escena': nombre, 'descripcion': descripcion, 'sintetica': True, 'debe_ejecutar': debe_ejecutar,
             'programa': escena.programa, 'pasos': pasos,
             'camaras': [{**c.resumen(), 'cobertura': cobertura(c)} for c in escena.camaras],
+            'configuracion_camaras': {'cuantas': len(escena.camaras),
+                                      'posiciones': [[round(float(v), 1) for v in c.centro] for c in escena.camaras],
+                                      'fov': sorted({round(float(c.fov), 1) for c in escena.camaras})},
             'confirmaciones_correctas': correctas, 'confirmaciones_incorrectas': incorrectas,
             'pendientes': pendientes, 'tiempos': {k: percentiles(v) for k, v in duraciones.items()},
             'lecturas': dict(Counter(p for d in detalle for p in d['leido'])), 'detalle': detalle}
@@ -72,13 +80,16 @@ def imprimir(informe):
         c = camara['cobertura']
         print(f"  {camara['nombre']:<18} campo {c['campo_mm']:.0f} mm · {c['px_por_mm']:.2f} px/mm · "
               f"ficha {c['ficha_px']:.0f} px {'' if c['suficiente'] else '(por debajo del mínimo utilizable)'}")
-    print(f"correctas: {informe['confirmaciones_correctas']} · incorrectas: {informe['confirmaciones_incorrectas']} · "
-          f"pendientes: {informe['pendientes']} de {informe['pasos']}")
+    print(f"confirmado correcto: {informe['confirmaciones_correctas']} · confirmado incorrecto: "
+          f"{informe['confirmaciones_incorrectas']} · pendiente: {informe['pendientes']} de {informe['pasos']}")
+    print(f"  se compara el programa completo (orden y operandos), no el conjunto de símbolos")
     for etapa, t in informe['tiempos'].items():
         print(f"  {etapa}: mediana {t['mediana_ms']} ms · p95 {t['p95_ms']} ms")
     ultimo = informe['detalle'][-1]
-    print(f"último paso: verdad={ultimo['verdad']}")
-    print(f"             leido ={ultimo['leido']}")
+    print(f"último paso: programa real  ={ultimo['programa_real']}")
+    print(f"             programa leido ={ultimo['programa']}")
+    print(f"             piezas reales  ={ultimo['verdad']}")
+    print(f"             piezas leidas  ={ultimo['leido']}")
     if ultimo['avisos']:
         print('  avisos: ' + ' | '.join(ultimo['avisos']))
     print('Imágenes sintéticas: no equivalen a una prueba con fichas impresas y cámaras reales.\n')

@@ -295,13 +295,23 @@ class FondoImpresoTest(unittest.TestCase):
         self.assertTrue(puede_ejecutar(resultado))
         self.assertEqual(sorted(p['lexema'] for p in resultado['piezas']), sorted(escena.verdad()))
 
-    def test_un_fondo_dificil_deja_la_lectura_pendiente(self):
+    def test_un_fondo_dificil_se_descarta_por_altura(self):
+        _, espurias = self.espurias('fondo_dificil')
+        self.assertTrue(espurias, 'los recuadros impresos deben detectarse en la imagen')
         escena, resultado = self.recorrer('fondo_dificil')
-        self.assertFalse(puede_ejecutar(resultado),
-                         'si las marcas impresas pueden pasar por fichas, la lectura no se confirma')
-        self.assertGreater(resultado['sin_localizar'], 0)
         self.assertEqual(sorted(p['lexema'] for p in resultado['piezas']), sorted(escena.verdad()),
                          'las marcas impresas no deben añadirse como piezas del programa')
+        hoja = escena.fondos[0]
+        for pieza in resultado['piezas']:
+            self.assertGreater(pieza['posicion'][2], hoja.centro[2] + 10,
+                               'ninguna pieza del programa puede estar a la altura del papel')
+
+    def test_un_fondo_dificil_no_confirma_nada_falso(self):
+        escena, resultado = self.recorrer('fondo_dificil')
+        if puede_ejecutar(resultado):
+            codigo = [' '.join([i['token'], *i['operandos']]) for i in resultado['instrucciones']]
+            self.assertEqual(codigo, list(escena.programa),
+                             'solo puede confirmar si lo confirmado es el programa que hay sobre la mesa')
 
 
 class DibujoDesconocidoTest(unittest.TestCase):

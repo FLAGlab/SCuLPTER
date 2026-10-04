@@ -1,6 +1,33 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { aTres, aPython, anguloATres, centroDeCamara, baseDeCamara } from './coordenadas.mjs';
+import { prepararBloque, prepararConector, prepararCuna, separarOperaciones } from '../escena/piezas.js';
+
+const COLOR_OPERACION = 0x439b9e;
+const COLOR_GRABADO = 0x082936;
+
+let piezasSTL = null;
+let cargaSTL = null;
+
+function cargarPiezasSTL() {
+  if (!cargaSTL) {
+    const cargador = new STLLoader();
+    cargaSTL = Promise.all(['bloque_1_param', 'bloque_2_param', 'parametro', 'conector', 'cuna']
+      .map(n => cargador.loadAsync(`./modelos/${n}.stl`)))
+      .then(([uno, dos, lamina, hojaConector, hojaCuna]) => {
+        piezasSTL = {
+          bloques: { 1: prepararBloque(uno, 1), 2: prepararBloque(dos, 2) },
+          operaciones: separarOperaciones(lamina),
+          conector: prepararConector(hojaConector),
+          cuna: prepararCuna(hojaCuna),
+        };
+        return piezasSTL;
+      })
+      .catch(() => { piezasSTL = null; return null; });
+  }
+  return cargaSTL;
+}
 
 const COLOR_MESA = 0xebebeb;
 const COLOR_BLOQUE = 0xb9a9e8;
@@ -66,7 +93,7 @@ export function crearEscenaGemelo(contenedor, { alSeleccionar, alMover, alTocarU
   function limpiar(grupo) {
     while (grupo.children.length) {
       const hijo = grupo.children.pop();
-      hijo.traverse(o => { o.geometry?.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.map?.dispose(); m.dispose(); }); });
+      hijo.traverse(o => { if (!o.geometry?.userData?.compartida) o.geometry?.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.map?.dispose(); m.dispose(); }); });
     }
   }
 
@@ -75,6 +102,13 @@ export function crearEscenaGemelo(contenedor, { alSeleccionar, alMover, alTocarU
     const y = new THREE.Vector3(...aTres(marco.normal));
     const z = new THREE.Vector3().crossVectors(x, y);
     malla.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  }
+
+  function orientarFicha(malla, marco) {
+    malla.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(...aTres(marco.avance)),
+      new THREE.Vector3(...aTres(marco.lateral)),
+      new THREE.Vector3(...aTres(marco.normal))));
   }
 
   function barra(desde, hasta, grosor, color) {
@@ -91,18 +125,32 @@ export function crearEscenaGemelo(contenedor, { alSeleccionar, alMover, alTocarU
   function dibujarMontaje(geometria) {
     limpiar(montaje);
     for (const b of geometria.bloques) {
-      const caja = new THREE.Mesh(new THREE.BoxGeometry(b.largo, b.alto, b.ancho),
-        new THREE.MeshLambertMaterial({ color: COLOR_BLOQUE }));
+      const forma = piezasSTL?.bloques[b.largo > 75 ? 2 : 1];
+      const material = new THREE.MeshLambertMaterial({ color: COLOR_BLOQUE });
+      const caja = new THREE.Mesh(forma || new THREE.BoxGeometry(b.largo, b.alto, b.ancho), material);
       orientar(caja, b);
-      const centro = new THREE.Vector3(...aTres(b.centro));
-      caja.position.copy(centro).add(new THREE.Vector3(...aTres(b.normal)).multiplyScalar(b.alto / 2));
+      if (forma) {
+        caja.position.set(...aTres(b.centro.map((v, i) => v - b.avance[i] * (b.largo / 2 - 35.5))));
+      } else {
+        caja.position.copy(new THREE.Vector3(...aTres(b.centro)))
+          .add(new THREE.Vector3(...aTres(b.normal)).multiplyScalar(b.alto / 2));
+      }
       montaje.add(caja);
     }
     for (const c of geometria.conectores || []) {
-      const mitad = c.largo / 2;
-      const desde = c.centro.map((v, i) => v - c.avance[i] * mitad);
-      const hasta = c.centro.map((v, i) => v + c.avance[i] * mitad);
-      const pieza = barra(desde, hasta, 4, COLOR_CONECTOR);
+      let pieza;
+      if (piezasSTL) {
+        pieza = new THREE.Mesh(piezasSTL.conector, new THREE.MeshLambertMaterial({ color: COLOR_CONECTOR }));
+        const avance = new THREE.Vector3(...aTres(c.avance)).normalize();
+        const arriba = new THREE.Vector3(...aTres(c.normal || [0, 0, 1])).normalize();
+        pieza.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+          avance, arriba, new THREE.Vector3().crossVectors(avance, arriba)));
+        pieza.position.set(...aTres(c.centro)).addScaledVector(arriba, 10.5);
+      } else {
+        const mitad = c.largo / 2;
+        pieza = barra(c.centro.map((v, i) => v - c.avance[i] * mitad),
+                      c.centro.map((v, i) => v + c.avance[i] * mitad), 4, COLOR_CONECTOR);
+      }
       pieza.userData.union = { tipo: 'conector', estado: c.estado, desde: c.desde, hacia: c.hacia };
       montaje.add(pieza);
     }
@@ -120,10 +168,11 @@ export function crearEscenaGemelo(contenedor, { alSeleccionar, alMover, alTocarU
       montaje.add(grupo);
     }
     for (const s of geometria.soportes || []) {
-      const cuna = new THREE.Mesh(new THREE.BoxGeometry(s.lado, s.alto, s.lado),
+      const forma = piezasSTL?.cuna;
+      const cuna = new THREE.Mesh(forma || new THREE.BoxGeometry(s.lado, s.alto, s.lado),
         new THREE.MeshLambertMaterial({ color: COLOR_SOPORTE }));
       const [x, y, z] = aTres(s.centro);
-      cuna.position.set(x, y + s.alto / 2, z);
+      cuna.position.set(x, forma ? y : y + s.alto / 2, z);
       montaje.add(cuna);
     }
     for (const f of geometria.fondos || []) {
@@ -136,6 +185,18 @@ export function crearEscenaGemelo(contenedor, { alSeleccionar, alMover, alTocarU
     }
     for (const f of geometria.fichas) {
       if (f.retirada) continue;
+      const grabada = piezasSTL?.operaciones[f.lexema];
+      if (grabada) {
+        const pieza = new THREE.Mesh(grabada, [
+          new THREE.MeshLambertMaterial({ color: COLOR_OPERACION }),
+          new THREE.MeshLambertMaterial({ color: COLOR_GRABADO }),
+        ]);
+        orientarFicha(pieza, f);
+        pieza.position.set(...aTres(f.centro));
+        pieza.userData.ficha = f.id;
+        montaje.add(pieza);
+        continue;
+      }
       const ficha = new THREE.Mesh(new THREE.BoxGeometry(f.lado, 2, f.lado), [
         new THREE.MeshLambertMaterial({ color: COLOR_FICHA }), new THREE.MeshLambertMaterial({ color: COLOR_FICHA }),
         new THREE.MeshLambertMaterial({ map: etiqueta(f.lexema) }), new THREE.MeshLambertMaterial({ color: COLOR_FICHA }),
@@ -191,6 +252,8 @@ export function crearEscenaGemelo(contenedor, { alSeleccionar, alMover, alTocarU
       camaras.add(grupo);
     }
   }
+
+  cargarPiezasSTL().then(() => { if (estado) { dibujarMontaje(estado.geometria); } });
 
   function actualizar(nuevo) {
     estado = nuevo;

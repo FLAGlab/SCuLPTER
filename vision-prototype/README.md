@@ -2,7 +2,10 @@
 
 Este prototipo recibe imágenes de cámaras, reconstruye un programa físico y lo muestra en el simulador. El servicio comparte observaciones de varias cámaras calibradas y mantiene el estado de las fichas durante el montaje. La validación del programa se hace con el intérprete existente.
 
-Hay un **gemelo digital** para probar el reconocimiento antes de tener cámaras: [GEMELO_DIGITAL.md](docs/GEMELO_DIGITAL.md).
+Hay un **gemelo digital** para probar el reconocimiento antes de tener cámaras: las cámaras
+virtuales reciben píxeles rasterizados desde los STL del proyecto y pasan por el mismo
+reconocimiento y la misma fusión que usarán las físicas. Está en
+[GEMELO_DIGITAL.md](docs/GEMELO_DIGITAL.md).
 
 ## Dónde está cada cosa
 

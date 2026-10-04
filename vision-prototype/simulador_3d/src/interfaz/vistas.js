@@ -26,6 +26,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   const base = location.port === '8000' ? 'http://127.0.0.1:8766' : location.origin;
   let solicitudEstado = 0;
   let estado = null, pagina = 'mesa', firmaCamaras = '', ultimaLectura = '', timer, ocupado = false;
+  let gemeloCodigoPedido = null, gemeloAviso = '';
   let visor = null, generacion = 0;
   const raiz = $('vistas');
   let simbolosDatos = [], simboloElegido = null, ejemploElegido = 0;
@@ -55,7 +56,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     </div>
     <aside id="vistas-propiedades" class="panel">
       <div id="vista-mensaje" role="status" hidden></div>
-      <div data-prop="ejemplos" hidden>${seccion('Ejemplo', '<div id="ejemplo-descripcion"></div><p class="nota" id="ejemplo-forma"></p><div class="acciones"><button class="accion" id="ejemplo-mesa">Cargar en mesa</button><button class="accion primaria" id="ejemplo-ejecucion">Ver ejecución</button></div>')}${seccion('Montaje', '<button class="accion" id="ejemplo-gravedad">Ver con gravedad</button><p class="nota">Sujeta un extremo del montaje y levántalo. Cada bloque gira en su conector y se apoya en la mesa al soltarlo.</p><button class="accion" id="ejemplo-restaurar" disabled>Restaurar mi montaje</button>')}</div>
+      <div data-prop="ejemplos" hidden>${seccion('Ejemplo', '<div id="ejemplo-descripcion"></div><p class="nota" id="ejemplo-forma"></p><div class="acciones"><button class="accion" id="ejemplo-mesa">Cargar en mesa</button><button class="accion primaria" id="ejemplo-ejecucion">Ver ejecución</button><button class="accion" id="ejemplo-gemelo">Abrir en el Gemelo</button></div>')}${seccion('Montaje', '<button class="accion" id="ejemplo-gravedad">Ver con gravedad</button><p class="nota">Sujeta un extremo del montaje y levántalo. Cada bloque gira en su conector y se apoya en la mesa al soltarlo.</p><button class="accion" id="ejemplo-restaurar" disabled>Restaurar mi montaje</button>')}</div>
       <div data-prop="camaras" hidden>
         ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><p class="nota">Hay dos señales de estabilidad distintas. Cada cámara dice si <b>su vista</b> lleva 0.8 s quieta; la fusión dice si <b>el programa</b> lleva 0.8 s sin cambiar. La que habilita la ejecución es la del origen principal, marcada en la lista. Una ficha «sin contradicción» tiene posición y símbolo que ninguna cámara desmiente, y eso puede venir de una sola vista: no es corroboración independiente. Sin profundidad no se distingue una ficha tapada de una que nadie miró. Los encajes se estiman por geometría.</p>')}
         ${seccion('Lectura compartida', `<form id="fusion-form">${propiedad('Origen','<select class="fld" name="modo"><option value="fusion">Combinar cámaras</option><option value="individual">Una sola vista</option></select>')}${propiedad('Paso 1 par. (mm)','<input class="fld" name="paso_mm" type="number" min="20" max="300" step="0.1" required>')}${propiedad('Paso 2 par. (mm)','<input class="fld" name="paso_2_mm" type="number" min="20" max="300" step="0.1" placeholder="opcional">')}<p class="nota">Distancia entre los centros de las fichas de operación de dos bloques consecutivos, medida sobre el montaje armado. Los bloques de uno y dos parámetros dan pasos distintos: mide los dos. Deja el segundo vacío solo si toda la cadena usa el mismo tamaño. No pongas el promedio; consulta MEDIR_PASO.md. Con los dos pasos, la distancia esperada se ata a la operación: PUSH y MOV llevan bloque de dos parámetros, y POP, DUP, NEG, ? y JMP de uno. CMP y las aritméticas admiten uno o dos, así que su unión se informa como sin confirmar en vez de darse por buena. Todas las cámaras deben estar registradas en Calibración.</p><button class="accion" type="submit">Guardar lectura</button></form><div id="fusion-resumen" class="nota"></div><div id="fusion-piezas"></div><button class="accion" id="fusion-reiniciar">Reiniciar seguimiento</button><p class="nota">Si retiraste piezas, reinicia cuando la mesa esté visible. No se borran piezas por una oclusión.</p>`)}
@@ -107,6 +108,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const x = Math.min(...xs)-65, y = Math.min(...ys)-55, w = Math.max(...xs)-x+100, h = Math.max(...ys)-y+75;
     $('ejemplo-plano').innerHTML = `<svg viewBox="${x} ${y} ${w} ${h}" aria-label="Distribución del ejemplo vista desde arriba" role="img">${m.conexiones.map(c => { const a=m.bloque(c.origen), b=m.bloque(c.destino); return `<line x1="${a.posicion[0]}" y1="${-a.posicion[2]}" x2="${b.posicion[0]}" y2="${-b.posicion[2]}" class="diagrama-union"/>`; }).join('')}${m.bloques.map((b,i) => `<g transform="translate(${b.posicion[0]},${-b.posicion[2]}) rotate(${b.angulo*180/Math.PI})"><rect x="-24" y="-18" width="${b.capacidad === 2 ? 80 : 60}" height="36" rx="5" class="bloque-${familia(m.programa()[i].token)}"/><rect x="-20" y="-13" width="29" height="26" rx="3" class="ficha-operacion"/><text x="-5" y="3" text-anchor="middle" class="diagrama-op">${escapar(m.programa()[i].token)}</text>${m.programa()[i].operandos.map((p,j) => `<rect x="${14+j*20}" y="-9" width="17" height="18" rx="2" class="ficha-${/^(-?\d|nil)/.test(p) ? 'numero' : 'etiqueta'}"/><text x="${22+j*20}" y="3" text-anchor="middle" class="diagrama-param">${escapar((m.etiquetas().get(p) || p).length > 5 ? '…' : m.etiquetas().get(p) || p)}</text>`).join('')}</g>`).join('')}</svg>`;
   }
+  $('ejemplo-gemelo').onclick = () => { gemeloCodigoPedido = EJEMPLOS[ejemploElegido].codigo; navegar('gemelo'); };
   for (const [id,destino] of [['ejemplo-mesa','mesa'],['ejemplo-ejecucion','ejecucion'],['ejemplo-gravedad','mesa']]) $(id).onclick = () => {
     if (cargarEjemplo(EJEMPLOS[ejemploElegido], destino)) { $('ejemplo-restaurar').disabled = false; if (id === 'ejemplo-gravedad') verGravedad(); }
   };
@@ -247,7 +249,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const nombres = Object.fromEntries(estado.camaras.map(c => [c.id,c.nombre]));
     const estadosPieza = {confirmada:'Leída',ambigua:'Ambigua',oculta:'Oculta',no_observada:'Sin observación reciente'};
     $('fusion-piezas').hidden = config.modo !== 'fusion';
-    $('fusion-piezas').innerHTML = (fusion?.piezas || []).map(p => `<div class="pieza-observada"><div><span class="mono">${escapar(estado.etiquetas?.[p.lexema] || p.lexema)}</span><span class="${p.estado === 'confirmada' ? (p.camaras.length === 1 ? 'avisoc' : '') : 'errc'}">${escapar(estadosPieza[p.estado] || p.estado)}${p.estado === 'confirmada' ? ` · ${p.camaras.length === 1 ? 'una sola vista, sin corroboración independiente' : p.camaras.length + ' vistas que coinciden'}` : ''}</span></div><div class="nota">${escapar(p.id)} · ${escapar(p.camaras.map(id => nombres[id] || id).join(', '))}${p.candidatos?.length ? ' · similitud ' + p.candidatos[0].puntaje.toFixed(2) : ''}</div></div>`).join('');
+    $('fusion-piezas').innerHTML = (fusion?.piezas || []).map(p => { const leen = p.lectores || p.camaras; return `<div class="pieza-observada"><div><span class="mono">${escapar(estado.etiquetas?.[p.lexema] || p.lexema)}</span><span class="${p.estado === 'confirmada' ? (leen.length === 1 ? 'avisoc' : '') : 'errc'}">${escapar(estadosPieza[p.estado] || p.estado)}${p.estado === 'confirmada' ? ` · ${leen.length === 1 ? 'una sola vista, sin corroboración independiente' : leen.length + ' vistas que coinciden'}` : ''}</span></div><div class="nota">${escapar(p.id)} · ${escapar(leen.map(id => nombres[id] || id).join(', ') || 'ninguna vista la identifica')}${p.candidatos?.length ? ' · similitud ' + p.candidatos[0].puntaje.toFixed(2) : ''}</div></div>`; }).join('');
     const principal = config.modo === 'fusion' ? fusion : estado.camaras.find(c => c.id === estado.principal);
     $('lectura-codigo').hidden = !principal?.instrucciones?.length;
     $('lectura-codigo').textContent = (principal?.instrucciones || []).map(i => [i.token, ...i.operandos.map(v => estado.etiquetas?.[v] || v)].join(' ')).join('\n');
@@ -331,6 +333,9 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       caja.innerHTML = `<p class="nota errc">No se pudo consultar la preparación: ${escapar(error.message)}</p>`;
     }
   }
+  const ROTULO_VISTA = {asociada: 'la fusión usó esta lectura', contradice: 'propone otro símbolo',
+    ilegible: 'la detecta pero no la lee', sin_deteccion: 'la encuadra y no detecta nada', fuera: 'fuera de encuadre'};
+  const CLASE_VISTA = {asociada: '', contradice: 'errc', ilegible: 'avisoc', sin_deteccion: 'avisoc', fuera: ''};
   const PROCEDENCIA = {
     coincidencia_independiente: ['Coincidencia independiente', 'okc', 'Dos o más cámaras la sitúan y la leen igual.'],
     observacion_unica: ['Observación única', 'avisoc', 'Una sola cámara la sostiene; nadie la desmiente, pero nadie la corrobora.'],
@@ -339,7 +344,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     oculta: ['Oculta comprobada', 'errc', 'La profundidad confirma que algo la tapa.'],
     sin_informacion: ['Sin información', 'errc', 'Ninguna cámara la observó en este paso.'],
   };
-  let gemeloUnion = null, gemeloEstado = null, gemeloCamara = null, gemeloMotor = null, gemeloFirma = '', gemeloVeredicto = null, gemeloReloj = null, escena3d = null;
+  let gemeloUnion = null, gemeloEstado = null, gemeloCamara = null, gemeloMotor = null, gemeloFirma = '', gemeloVeredicto = null, gemeloReloj = null, escena3d = null, gemeloPeticion = 0, gemeloMoviendo = false, gemeloPendiente = null;
 
   function vistaDe(id) {
     return gemeloEstado?.camaras.find(c => c.id === id) ?? null;
@@ -406,13 +411,25 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       <div class="ensayo-lista">${c.observaciones.map(o => `<span class="ensayo-item ${o.lexema === '<sin leer>' ? 'errc' : 'okc'}"><span class="mono">${escapar(o.lexema)}</span></span>`).join('') || '<span class="nota">Sin observaciones.</span>'}</div></div>`).join('');
     const piezas = f.piezas.map(p => {
       const [titulo, clase, ayuda] = PROCEDENCIA[p.procedencia] || [p.procedencia, '', ''];
-      const filas = (p.vistas || []).map(v => `<div class="vista-ficha ${v.ve ? '' : 'errc'}">
+      const vistas = p.vistas || [];
+      const por = c => vistas.filter(v => v.clase === c);
+      const asociadas = por('asociada'), contradicen = por('contradice');
+      const ilegibles = por('ilegible'), ciegas = por('sin_deteccion'), fuera = por('fuera');
+      const filas = vistas.filter(v => v.clase !== 'fuera').map(v => `<div class="vista-ficha ${CLASE_VISTA[v.clase] || ''}">
           <span class="vf-camara">${escapar(v.nombre)}</span>
-          <span class="vf-lee">${v.ve ? `propone <b class="mono">${escapar(v.propone)}</b>${v.candidatos && v.candidatos[0] ? ' · ' + v.candidatos[0].puntaje.toFixed(2) : ''}` : 'no la ve'}</span>
-          <span class="vf-motivo">${escapar(v.motivo || '')}</span></div>`).join('');
+          <span class="vf-lee">${ROTULO_VISTA[v.clase] || v.clase}${v.propone ? `: <b class="mono">${escapar(v.propone)}</b>` : ''}${v.candidatos && v.candidatos[0] ? ' · ' + v.candidatos[0].puntaje.toFixed(2) : ''}</span></div>`).join('');
+      const partes = [`${p.respaldo ?? asociadas.length} de ${vistas.length} cámaras la respaldan`];
+      if (contradicen.length) partes.push(`${contradicen.length} propone${contradicen.length === 1 ? '' : 'n'} otro símbolo`);
+      if (ilegibles.length) partes.push(`${ilegibles.length} la detecta${ilegibles.length === 1 ? '' : 'n'} sin poder leerla`);
+      if (ciegas.length) partes.push(`${ciegas.length} la encuadra${ciegas.length === 1 ? '' : 'n'} sin detectar nada`);
+      if (fuera.length) partes.push(`${fuera.length} fuera de encuadre`);
+      const resumen = partes.join(' · ');
+      const motivo = p.estado === 'confirmada'
+        ? (asociadas.length > 1 ? 'Se acepta porque dos o más vistas independientes coinciden.' : 'Se acepta con una sola vista: nadie la corrobora ni la desmiente.')
+        : 'Queda pendiente: ' + (contradicen.length ? 'las vistas no coinciden.' : ilegibles.length ? 'se detecta pero no se identifica con margen suficiente.' : 'ninguna cámara la observa ahora.');
       return `<div class="pieza-observada"><div><span class="mono">${escapar(p.lexema)}</span><span class="${clase}">${titulo}</span>${p.provisional ? '<span class="avisoc">lectura anterior conservada</span>' : ''}</div>
-        <div class="nota">${escapar(ayuda)}</div>
-        <div class="vistas-ficha">${filas || '<span class="nota">Sin información por cámara.</span>'}</div></div>`;
+        <div class="nota">${resumen}. ${escapar(motivo)}</div>
+        <div class="vistas-ficha">${filas || '<span class="nota">Ninguna cámara la encuadra en este paso.</span>'}</div></div>`;
     }).join('');
     const est = g.estructura || {};
     const estructura = `<div class="prop"><span class="lbl">Estructura</span><div class="fld">${
@@ -427,7 +444,8 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     }
     const cuenta = faltan.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {});
     const faltanTexto = Object.entries(cuenta).map(([v, n]) => n > 1 ? `${v} (${n})` : v);
-    $('gemelo-conjunto').innerHTML = `<div class="gemelo-lecturas">${lecturas}</div>
+    $('gemelo-conjunto').innerHTML = `${gemeloAviso ? `<p class="nota avisoc">${escapar(gemeloAviso)}</p>` : ''}
+      <div class="gemelo-lecturas">${lecturas}</div>
       <div class="prop"><span class="lbl">Programa</span><pre class="fld mono">${escapar(g.codigo || '(sin instrucciones)')}</pre></div>
       <div class="prop"><span class="lbl">Fusión</span><div class="fld">${escapar(f.estado)} · revisión ${f.revision} · ${f.habilita_ejecucion ? 'habilita la ejecución' : 'no habilita la ejecución'}</div></div>
       ${estructura}
@@ -462,9 +480,14 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const v = veredicto({bloques: 1, resultado: gemeloVeredicto, origen: 'camara'});
     const traza = gemeloVeredicto.traza || [];
     const siguiente = traza.length ? traza[0].siguiente : null;
+    const ejecucion = gemeloVeredicto.etapa === 'runtime';
     destino.innerHTML = `<div class="dictamen"><span class="dictamen-origen">${escapar(procedencia(gemeloVeredicto))}</span>
         <span><b class="${v.color}">${escapar(v.titulo)}</b>${v.detalle ? `<div class="nota">${escapar(v.detalle)}</div>` : ''}</span></div>
+      <p class="nota${habilita ? '' : ' avisoc'}">${habilita
+        ? 'Veredicto sobre el programa que las cámaras ya dan por leído.'
+        : 'Veredicto sobre un programa candidato que las cámaras todavía no dan por leído. No valida el montaje.'}</p>
       <p class="nota">${traza.length > 1 ? `Traza de ${traza.length - 1} paso${traza.length === 2 ? '' : 's'}. Siguiente instrucción: ${siguiente == null ? 'fin' : siguiente + 1}.` : 'Sin traza recorrible.'}</p>
+      ${ejecucion ? '<p class="nota">Es un error de ejecución del propio programa candidato, no un fallo de lectura: el intérprete llegó a ejecutarlo y se quedó sin valores en la pila. Por ejemplo, <span class="mono">ADD a</span> saca dos valores de <span class="mono">a</span> y solo hay uno.</p>' : ''}
       <div class="dos-preguntas">
         <div><b>¿Qué vieron las cámaras?</b><p class="nota ${habilita ? 'okc' : 'avisoc'}">${habilita
           ? 'La lectura está completa y quieta, así que se puede ejecutar lo leído.'
@@ -483,6 +506,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     $('gemelo-camara').value = gemeloCamara;
     const c = g.camaras.find(c => c.id === gemeloCamara);
     if (!c) return;
+    if ($('gemelo-pose').contains(document.activeElement)) return;
     const eje = (etiqueta, campo, indice, valor) => propiedad(etiqueta, `<input class="fld mono" type="number" step="5" data-pose="${campo}" data-indice="${indice}" value="${Math.round(valor)}">`);
     $('gemelo-pose').innerHTML = eje('Posición X', 'centro', 0, c.centro[0]) + eje('Posición Y', 'centro', 1, c.centro[1]) + eje('Posición Z', 'centro', 2, c.centro[2])
       + eje('Mira a X', 'objetivo', 0, c.objetivo[0]) + eje('Mira a Y', 'objetivo', 1, c.objetivo[1]) + eje('Mira a Z', 'objetivo', 2, c.objetivo[2])
@@ -504,10 +528,47 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     escena3d = null;
   }
 
+  async function mover(datos) {
+    gemeloPendiente = {...(gemeloPendiente || {}), ...datos};
+    if (gemeloMoviendo) return;
+    gemeloMoviendo = true;
+    try {
+      while (gemeloPendiente) {
+        const envio = gemeloPendiente; gemeloPendiente = null;
+        await gemelo('mover', envio);
+      }
+    } finally { gemeloMoviendo = false; }
+  }
+
+  async function encadenarPaso() {
+    if (!$('gemelo-reproducir').checked) return;
+    await gemelo('paso', {incremento: 1});
+    if (!$('gemelo-reproducir').checked) return;
+    gemeloReloj = setTimeout(encadenarPaso, 200);
+  }
+
   async function gemelo(accion, datos) {
+    const turno = ++gemeloPeticion;
     try {
       abrirEscena3d();
-      gemeloEstado = accion ? await api('gemelo/' + accion, datos || {}) : await api('gemelo');
+      const recibido = accion ? await api('gemelo/' + accion, datos || {}) : await api('gemelo');
+      if (turno !== gemeloPeticion) return;
+      gemeloEstado = recibido;
+      if (gemeloCodigoPedido) {
+        const pedido = gemeloCodigoPedido.trim(); gemeloCodigoPedido = null;
+        const catalogo = gemeloEstado.escenas_programa || {};
+        const escena = Object.keys(catalogo).find(n => catalogo[n].join('\n') === pedido);
+        if (escena) {
+          gemeloAviso = '';
+          if (escena !== gemeloEstado.escena) {
+            const cargado = await api('gemelo/cargar', { escena });
+            if (turno !== gemeloPeticion) return;
+            gemeloEstado = cargado;
+          }
+        } else {
+          gemeloAviso = 'El gemelo todavía no tiene una escena para ese ejemplo: su montaje no está representado en la mesa virtual. Se muestra la escena actual.';
+        }
+      }
       if (!gemeloCamara || !gemeloEstado.camaras.some(c => c.id === gemeloCamara)) {
         gemeloCamara = escena3d?.elegida ?? gemeloEstado.camaras[0]?.id ?? null;
       }
@@ -608,14 +669,14 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     if (!campo || !gemeloEstado) return;
     const c = gemeloEstado.camaras.find(c => c.id === gemeloCamara);
     if (!c) return;
-    if (campo === 'fov') return void gemelo('mover', {id: gemeloCamara, fov: Number(e.target.value)});
-    const valores = [...c[campo]];
+    if (campo === 'fov') return void mover({id: gemeloCamara, fov: Number(e.target.value)});
+    const valores = [...((gemeloPendiente || {})[campo] || c[campo])];
     valores[Number(e.target.dataset.indice)] = Number(e.target.value);
-    gemelo('mover', {id: gemeloCamara, [campo]: valores});
+    mover({id: gemeloCamara, [campo]: valores});
   });
   $('gemelo-reproducir').addEventListener('change', e => {
-    clearInterval(gemeloReloj); gemeloReloj = null;
-    if (e.target.checked) gemeloReloj = setInterval(() => gemelo('paso', {incremento: 1}), 1400);
+    clearTimeout(gemeloReloj); gemeloReloj = null;
+    if (e.target.checked) encadenarPaso();
   });
   $('simbolo-form').onsubmit = e => { e.preventDefault(); actuar(async () => { const f = datosFormulario('simbolo-form'); await api('simbolos/guardar', { nombre: f.nombre, tipo: f.tipo, imagen: await foto() }); await simbolos(); }, 'Referencia guardada y disponible para todas las cámaras.'); };
   $('simbolo-probar').onclick = () => actuar(async () => { const r = await api('simbolos/probar', { imagen: await foto() }); $('simbolo-prueba').innerHTML = r.candidatos.map(c => `<div class="simrow"><span class="mono">${escapar(c.nombre || c.lexema)}</span><span>${c.puntaje.toFixed(3)}</span></div>`).join('') || 'Sin trazo reconocible.'; }, 'Similitudes calculadas. No representan probabilidades.');
@@ -631,11 +692,12 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       listaLateral.innerHTML = '';
       $('servicio-seccion').hidden = ['ejemplos', 'piezas'].includes(destino);
       if (destino === 'ejemplos') seleccionarEjemplo(ejemploElegido);
+      if (destino !== 'gemelo') gemeloAviso = '';
       $('servicio-estado').hidden = ['ejemplos', 'piezas'].includes(destino);
       $('servicio-ayuda').hidden = !!estado || !['camaras', 'calibracion', 'simbolos'].includes(destino);
       mensaje(''); cerrarVisor();
       if (destino === 'gemelo') gemelo();
-      if (destino !== 'gemelo') { clearInterval(gemeloReloj); gemeloReloj = null; $('gemelo-reproducir').checked = false; cerrarEscena3d(); }
+      if (destino !== 'gemelo') { clearTimeout(gemeloReloj); gemeloReloj = null; $('gemelo-reproducir').checked = false; cerrarEscena3d(); }
       if (destino === 'simbolos') simbolos();
       if (destino === 'piezas') { const cantidades = inventario(); $('inventario').innerHTML = propiedad('Piezas', `<div class="fld">${Object.values(cantidades).reduce((a,b) => a+b,0)}</div>`); listaLateral.innerHTML = '<h2>Lista de piezas</h2>' + MODELOS.map(([id,nombre]) => `<button class="layer" data-modelo="${id}"><span>${nombre}</span><span class="right-num">${cantidades[id] || 0}</span></button>`).join(''); miniaturas(); modelo('bloque_1_param'); }
       if (estado) pintarCamaras();
