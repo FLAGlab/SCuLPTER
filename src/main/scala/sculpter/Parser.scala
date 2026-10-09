@@ -16,12 +16,15 @@ object Parser:
     var statements = List[Statement]()
     
     while (!isAtEnd()) {
-      try {
-        val stmt = statement()
-        statements = statements :+ stmt
-      } catch {
-        case e: ParseError => 
-          synchronize()
+      if (check(TokenType.ENTER)) advance()
+      else {
+        try {
+          val stmt = statement()
+          statements = statements :+ stmt
+        } catch {
+          case e: ParseError =>
+            synchronize()
+        }
       }
     }
     
