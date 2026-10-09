@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import shutil
 import tempfile
@@ -8,6 +9,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from herramientas.preparar_gemelo import PARAMETROS, preparar
+from herramientas.sembrar_vocabulario_virtual import nombre_referencia
 from plataforma.vocabulario import PROGRAMAS, Vocabulario
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -152,3 +155,32 @@ class ProcedenciaDePlantillasTest(unittest.TestCase):
         limpio = procedencia_plantillas(self.vocabulario(solo_fotos=True))
         self.assertTrue(limpio["solo_fotos"])
         self.assertEqual(limpio["plantillas_render"], 0)
+
+
+def digerir(carpeta):
+    resumen = {}
+    for ruta in sorted(Path(carpeta).rglob('*')):
+        if ruta.is_file():
+            resumen[str(ruta.relative_to(carpeta))] = hashlib.sha256(ruta.read_bytes()).hexdigest()
+    return resumen
+
+
+class PreparacionReproducibleTest(unittest.TestCase):
+    """El README y el documento del gemelo afirman que una copia limpia sale igual. Antes no era
+    cierto: cada referencia se nombraba con un uuid, así que dos preparaciones no coincidían ni
+    en los nombres de archivo ni en simbolos.json."""
+
+    def test_dos_preparaciones_limpias_son_identicas_byte_a_byte(self):
+        with tempfile.TemporaryDirectory() as temporal:
+            uno, dos = Path(temporal) / 'uno', Path(temporal) / 'dos'
+            preparar(str(uno))
+            preparar(str(dos))
+            primera = digerir(uno)
+            self.assertEqual(primera, digerir(dos))
+            self.assertEqual(len(primera), len(PARAMETROS) + 13 + 1,
+                             'un archivo por parámetro, uno por operación y el catálogo')
+
+    def test_el_nombre_de_cada_referencia_sale_del_simbolo(self):
+        self.assertEqual(nombre_referencia('pila', 'a'), nombre_referencia('pila', 'a'))
+        self.assertNotEqual(nombre_referencia('pila', 'a'), nombre_referencia('literal', 'a'))
+        self.assertTrue(nombre_referencia('operacion', 'PUSH').startswith('ref_operacion_'))

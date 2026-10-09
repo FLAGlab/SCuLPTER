@@ -1,7 +1,7 @@
 import unittest
 
 from plataforma.fusion import CONFIGURACION, Fusion, puede_ejecutar
-from tests.test_fusion import fuente
+from tests.test_fusion import con_area, fuente
 
 CORTO, LARGO = 95.0, 115.0
 CONFIG = {**CONFIGURACION, 'medido': True, 'paso_mm': CORTO, 'paso_2_mm': LARGO}
@@ -25,6 +25,7 @@ def escena(bloques, pasos):
 
 
 def leer(puntos, config=CONFIG, vueltas=12):
+    config = con_area(config, puntos)
     fusion = Fusion()
     resultado = None
     for n in range(vueltas):

@@ -28,6 +28,8 @@ MOVIMIENTO_PX = 6
 AREA_MINIMA = 0.002
 AREA_MAXIMA = 0.15
 PROPORCION_MAXIMA = 1.8
+EROSIONES_PEGADAS = (1, 2, 3)
+AREA_TINTA_MAXIMA = 0.6
 VOLCADO = None
 PUERTO_WEBSOCKET = 8765
 INTERVALO_S = 0.35
@@ -44,7 +46,52 @@ def reducir_resolucion(cuadro):
     return cv2.resize(cuadro, (ANCHO_TRABAJO_PX, int(alto * factor)))
 
 
-def regiones(cuadro):
+def _cabe(w, h, area_minima, area_maxima):
+    return (w > 0 and h > 0 and area_minima <= w * h <= area_maxima
+            and max(w, h) / min(w, h) <= PROPORCION_MAXIMA)
+
+
+def despegar(binaria, caja, area_minima, area_maxima):
+    """Fichas contiguas: un contorno demasiado alargado puede ser más de una ficha unida por el
+    puente de tinta que el umbral adaptativo tiende entre sus bordes. Se erosiona el trozo hasta
+    que el puente se corta y se devuelven las partes solo si cada una pasa por ficha. Un cuerpo
+    macizo se erosiona sin partirse, así que no produce fichas inventadas."""
+    x, y, w, h = caja
+    trozo = binaria[y : y + h, x : x + w]
+    for radio in EROSIONES_PEGADAS:
+        nucleo = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * radio + 1, 2 * radio + 1))
+        partes, _ = cv2.findContours(cv2.erode(trozo, nucleo), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cajas = []
+        for parte in partes:
+            a, b, c, d = cv2.boundingRect(parte)
+            a, b = max(0, a - radio), max(0, b - radio)
+            c, d = min(w - a, c + 2 * radio), min(h - b, d + 2 * radio)
+            if _cabe(c, d, area_minima, area_maxima):
+                cajas.append((x + a, y + b, c, d))
+        if len(cajas) >= 2:
+            return cajas
+    return []
+
+
+def _solapan(una, otra):
+    """Dos cajas que se pisan son la misma ficha vista dos veces. La región que ya salió de su
+    propio contorno manda: una parte despegada que caiga encima no añade evidencia, la duplica,
+    y una lectura duplicada que la fusión no puede situar bloquearía la ejecución sin motivo."""
+    ax, ay, aw, ah = una
+    bx, by, bw, bh = otra
+    ancho = min(ax + aw, bx + bw) - max(ax, bx)
+    alto = min(ay + ah, by + bh) - max(ay, by)
+    return ancho > 0 and alto > 0 and ancho * alto > 0.3 * min(aw * ah, bw * bh)
+
+
+def analizar(cuadro):
+    """Devuelve dos cosas distintas: las regiones que pasan por ficha, y la **tinta que el
+    detector no consigue resolver en fichas**.
+
+    Lo segundo no es una lectura y nunca se interpreta como un símbolo: es la constancia de que
+    en ese sitio hay algo. Hace falta para poder exigir que el hueco donde seguiría la cadena se
+    vea **vacío**, y no solo que alguna cámara lo encuadre. Sin este canal, un bloque que no
+    produce ninguna región se traga el programa en silencio."""
     gris = cv2.cvtColor(cuadro, cv2.COLOR_BGR2GRAY)
     difuminado = cv2.GaussianBlur(gris, (5, 5), 0)
     binaria = cv2.adaptiveThreshold(
@@ -57,18 +104,34 @@ def regiones(cuadro):
     area_cuadro = ancho_cuadro * alto_cuadro
     area_minima = area_cuadro * AREA_MINIMA
     area_maxima = area_cuadro * AREA_MAXIMA
+    area_tinta = area_cuadro * AREA_TINTA_MAXIMA
 
-    regiones = []
+    cajas, pegadas, grandes = [], [], []
     for contorno in contornos:
-        x, y, w, h = cv2.boundingRect(contorno)
-        area = w * h
-        if area < area_minima or area > area_maxima:
+        caja = cv2.boundingRect(contorno)
+        x, y, w, h = caja
+        if w * h < area_minima:
             continue
-        if max(w, h) / min(w, h) > PROPORCION_MAXIMA:
-            continue
-        recorte = cuadro[y : y + h, x : x + w]
-        regiones.append((recorte, x + w / 2, y + h / 2))
-    return regiones
+        if w * h > area_maxima:
+            grandes.append(caja)
+        elif _cabe(w, h, area_minima, area_maxima):
+            cajas.append(caja)
+        else:
+            pegadas.append(caja)
+    tinta = [c for c in grandes if c[2] * c[3] <= area_tinta]
+    for caja in sorted(pegadas):
+        partes = [p for p in despegar(binaria, caja, area_minima, area_maxima)
+                  if not any(_solapan(p, previa) for previa in cajas)]
+        if partes:
+            cajas.extend(partes)
+        else:
+            tinta.append(caja)
+    return ([(cuadro[y : y + h, x : x + w], x + w / 2, y + h / 2) for x, y, w, h in cajas],
+            [[int(v) for v in caja] for caja in tinta])
+
+
+def regiones(cuadro):
+    return analizar(cuadro)[0]
 
 
 def mejores(candidatos, cuantos: int = 2) -> str:

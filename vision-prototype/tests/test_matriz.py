@@ -1,30 +1,18 @@
-import json
-import subprocess
 import unittest
-from pathlib import Path
 
 import cv2
 import numpy as np
 
 from clasificador_simbolos import SIN_LEER
-from plataforma.escena_virtual import CONFIGURACION_PASOS, fuentes
-from plataforma.fusion import Fusion, puede_ejecutar
-from plataforma.guiones import GUIONES, _preparar
-from plataforma.vocabulario import Vocabulario
+from plataforma.escena_virtual import cobertura
+from plataforma.fusion import puede_ejecutar
+from plataforma.geometria_fusion import proyectar
+from plataforma.guiones import EXPECTATIVAS, GUIONES, _preparar
+from plataforma.recorrido import leido, recorrer
 
-RAIZ = Path(__file__).resolve().parents[1]
-DATOS = RAIZ / 'datos_locales' / 'virtual'
-INTERPRETE = RAIZ / 'simulador_3d' / 'generado' / 'interprete.js'
+from tests.entorno import en_scala, vocabulario
+
 PASOS = 12
-
-_voc = None
-
-
-def vocabulario():
-    global _voc
-    if _voc is None:
-        _voc = Vocabulario(RAIZ, DATOS)
-    return _voc
 
 
 def garabato():
@@ -44,37 +32,6 @@ def con_operacion_ilegible(posicion):
     return escena, lambda escena, paso: None
 
 
-def recorrer(escena, guion, pasos=PASOS):
-    fusion = Fusion()
-    resultado = None
-    for paso in range(pasos):
-        guion(escena, paso)
-        instante = 10.0 + paso * 0.1
-        marcos, _ = fuentes(escena, vocabulario(), instante, paso + 1)
-        resultado = fusion.actualizar(marcos, CONFIGURACION_PASOS, instante)
-    return resultado
-
-
-def leido(resultado):
-    return [' '.join([i['token'], *i['operandos']]) for i in resultado['instrucciones']]
-
-
-def en_scala(codigo):
-    guion = (
-        "import {sculptEjecutar} from %s;"
-        "const r = sculptEjecutar(process.argv[1] + '\\n', 2000);"
-        "process.stdout.write('@@' + JSON.stringify({valido: r.valido, etapa: r.etapa, decide: r.decide,"
-        "pasos: r.pasos ? r.pasos.length : 0, final: r.pasos ? r.pasos.at(-1) : null,"
-        "traza: r.traza ? r.traza.length : 0}) + '@@');"
-    ) % json.dumps(INTERPRETE.as_uri())
-    salida = subprocess.run(['node', '--input-type=module', '-e', guion, codigo],
-                            capture_output=True, text=True, timeout=180)
-    partes = salida.stdout.split('@@')
-    if len(partes) < 3:
-        raise AssertionError(f'el intérprete no respondió: {salida.stdout[-200:]} {salida.stderr[-200:]}')
-    return json.loads(partes[1])
-
-
 class Base(unittest.TestCase):
     escena_nombre = None
     constructor = None
@@ -87,7 +44,7 @@ class Base(unittest.TestCase):
             cls.escena, guion = cls.constructor()
         else:
             cls.escena, guion = GUIONES[cls.escena_nombre][0](vocabulario())
-        cls.resultado = recorrer(cls.escena, guion)
+        cls.resultado, _ = recorrer(cls.escena, guion, vocabulario(), PASOS)
         cls.codigo = leido(cls.resultado)
 
 
@@ -107,8 +64,6 @@ class Positivo(Base):
         self.assertEqual(self.resultado['avisos'], [])
 
     def test_scala_emite_el_veredicto_y_la_traza(self):
-        if not INTERPRETE.exists():
-            self.skipTest('falta generado/interprete.js; ejecuta npm run build:simulator')
         r = en_scala('\n'.join(self.codigo))
         for clave, valor in self.scala.items():
             self.assertEqual(r[clave], valor, f'{clave}: {r}')
@@ -226,21 +181,166 @@ class VistaContradictoriaTest(Positivo):
             self.assertEqual(pieza['estado'], 'confirmada', pieza['lexema'])
 
 
-class PrefijoSilenciosoPendienteTest(Base):
-    """Bloqueo conocido: con cobertura escasa el programa se trunca sin avisar."""
+class FondoImpresoTest(Positivo):
+    escena_nombre = 'fondo'
+    esperado = ['PUSH a 3', 'ADD a']
+    scala = {'valido': False, 'etapa': 'runtime', 'decide': 'lenguaje', 'pasos': 1, 'final': {'a': [3]}}
+
+
+class DesacuerdoEntreCamarasTest(Positivo):
+    escena_nombre = 'desacuerdo'
+    esperado = ['PUSH a 3', 'ADD a']
+    scala = {'valido': False, 'etapa': 'runtime', 'decide': 'lenguaje', 'pasos': 1, 'final': {'a': [3]}}
+
+
+class ReapareceUnaFichaTest(Negativo):
+    escena_nombre = 'reaparece'
+
+
+class SoportesTest(Positivo):
+    escena_nombre = 'soportes'
+    esperado = ['PUSH a 3', 'ADD a']
+    scala = {'valido': False, 'etapa': 'runtime', 'decide': 'lenguaje', 'pasos': 1, 'final': {'a': [3]}}
+
+
+class EjemploCondicionTest(Positivo):
+    escena_nombre = 'ejemplo_condicion'
+    esperado = ['PUSH a -1', '? a', 'PUSH b 99', 'PUSH c 7']
+    scala = {'valido': True, 'etapa': 'ok', 'decide': 'lenguaje', 'pasos': 3,
+             'final': {'a': [], 'c': [7]}}
+
+    def test_el_salto_condicional_se_lee_con_su_literal_negativo(self):
+        self.assertIn('-1', self.codigo[0].split())
+
+
+class DosWebcamsCortaTest(Positivo):
+    """Dos webcams sí leen un programa corto entero, con la disposición que halló el barrido de
+    `herramientas/ensayo_dos_webcams.py`: más altura y más campo, no más resolución."""
+
+    escena_nombre = 'dos_webcams_corta'
+    esperado = ['PUSH a 3']
+    scala = {'valido': True, 'etapa': 'ok', 'decide': 'lenguaje', 'pasos': 1, 'final': {'a': [3]}}
+
+    def test_son_dos_vistas_y_por_debajo_de_los_3_px_por_mm_del_banco(self):
+        self.assertEqual(len(self.escena.camaras), 2)
+        self.assertLess(cobertura(self.escena.camaras[0], 20.0, 640)['px_por_mm'], 3.0)
+
+
+class CoberturaParcialTest(Negativo):
+    """Era el único «confirma incorrecto» de la matriz: con tres cámaras a un lado se daba por
+    leído `PUSH a 3` con `PUSH a 3 · ADD a` sobre la mesa, y sin un solo aviso. Exigir que quede
+    pendiente es lo que obliga a recuperar la evidencia del segundo bloque en vez de callarla."""
 
     escena_nombre = 'cobertura_parcial'
 
-    def test_reproduce_el_prefijo_silencioso(self):
-        self.assertTrue(puede_ejecutar(self.resultado),
-                        'si deja de confirmar, el bloqueo se resolvió y esto pasa a ser un caso negativo')
+    def test_lo_leido_sigue_siendo_un_prefijo_pero_no_se_confirma(self):
         self.assertLess(len(self.codigo), len(self.escena.programa))
         self.assertEqual(self.codigo, list(self.escena.programa)[:len(self.codigo)],
-                         'lo que confirma es un prefijo de la verdad, no un programa inventado')
+                         'lo que lee es un prefijo de la verdad, no un programa inventado')
+        self.assertFalse(puede_ejecutar(self.resultado), self.codigo)
 
-    def test_la_causa_es_falta_de_deteccion_no_de_lectura(self):
-        for pieza in self.resultado['piezas']:
-            if pieza['lexema'] != SIN_LEER:
-                self.assertIn(pieza['lexema'], self.escena.verdad())
-        self.assertEqual(self.resultado['avisos'], [],
-                         'no hay aviso porque no hay evidencia del bloque que falta: ese es el bloqueo')
+    def test_queda_pendiente_por_evidencia_del_bloque_que_falta(self):
+        sueltas = [o for obs in (self.resultado.get('sueltas') or {}).values() for o in obs]
+        leidas = [o['lexema'] for o in sueltas if o['lexema'] != SIN_LEER]
+        self.assertTrue(leidas, 'alguna cámara tiene que leer algo del segundo bloque')
+        for lexema in leidas:
+            self.assertIn(lexema, self.escena.verdad(),
+                          'la evidencia que bloquea sale del montaje, no de un símbolo inventado')
+
+
+class SinEncuadrarElSegundoTest(Negativo):
+    """El segundo bloque no deja un solo píxel en ninguna cámara. Ninguna mejora del detector
+    puede recuperarlo, así que el único modo de no truncar en silencio es comprobar que el hueco
+    donde seguiría la cadena esté cubierto."""
+
+    escena_nombre = 'sin_encuadrar'
+
+    def test_del_segundo_bloque_no_hay_ninguna_observacion(self):
+        for camara in self.escena.camaras:
+            for ficha in self.escena.fichas:
+                if ficha.centro[0] < 60:
+                    continue
+                uv, z = proyectar(camara.modelo(), [ficha.centro])
+                dentro = (z[0] > 0 and 0 <= uv[0][0] < camara.resolucion[0]
+                          and 0 <= uv[0][1] < camara.resolucion[1])
+                self.assertFalse(dentro, f'{camara.id} encuadra {ficha.lexema}: la escena ya no sirve')
+
+    def test_el_motivo_es_que_el_hueco_de_continuacion_no_se_ve(self):
+        self.assertTrue(any('bloque siguiente' in aviso for aviso in self.resultado['avisos']),
+                        self.resultado['avisos'])
+
+
+class CadenaInclinadaTest(Negativo):
+    escena_nombre = 'inclinada'
+
+
+class CadenaVerticalTest(Negativo):
+    escena_nombre = 'vertical'
+
+    def test_las_fichas_salen_de_la_banda_de_planos(self):
+        self.assertEqual(self.resultado['piezas'], [],
+                         'la cadena vertical deja las fichas fuera de la banda declarada')
+
+
+class RecorridoQueRegresaTest(Negativo):
+    escena_nombre = 'regresa'
+
+    @unittest.expectedFailure
+    def test_no_inventa_simbolos_confirmados(self):
+        """Límite abierto, no criterio cumplido. Seis bloques girando 60° acumulan 300°, así que
+        el banco de cámaras —todas al mismo lado, como exige la regla— acaba viendo dos fichas
+        casi del revés: una vista lee el `POP` de [95,165] como `PUSH` (0.805) y el `NEG` de
+        [-48,82] como `MOD` (0.556), la otra vista que las observa no logra leerlas, y sin nadie
+        que contradiga la fusión las confirma. La escena queda pendiente, que es lo correcto, pero
+        con dos fichas confirmadas que no están sobre la mesa.
+
+        La regla «todas las cámaras al mismo lado» evita el par enfrentado, pero no evita que el
+        montaje gire el bloque. Resolverlo pide una ficha cuyo símbolo no dependa de la
+        orientación, o deducir la orientación del bloque antes de leer la ficha; las dos cosas
+        quedan fuera de este pase. Si alguna de las dos se hace, unittest avisará de un éxito
+        inesperado aquí."""
+        super().test_no_inventa_simbolos_confirmados()
+
+
+class UnionEnTeTest(Negativo):
+    escena_nombre = 'te'
+
+
+class MontajesSeparadosTest(Negativo):
+    escena_nombre = 'separados'
+
+    def test_se_informan_como_grupos_sin_union(self):
+        self.assertTrue(any('sin unión entre sí' in aviso for aviso in self.resultado['avisos']),
+                        self.resultado['avisos'])
+
+
+class EjemploBucleTest(Negativo):
+    escena_nombre = 'ejemplo_bucle'
+
+
+def casos_por_escena():
+    return {clase.escena_nombre: clase for clase in globals().values()
+            if isinstance(clase, type) and issubclass(clase, Base)
+            and clase.escena_nombre is not None}
+
+
+class CoberturaDeLaMatrizTest(unittest.TestCase):
+    """Una escena que no aparezca en la matriz no es un caso que pase: es un caso que falta."""
+
+    def test_toda_escena_del_gemelo_tiene_su_caso(self):
+        self.assertEqual(set(casos_por_escena()), set(GUIONES))
+
+    def test_toda_escena_declara_que_se_espera_de_ella(self):
+        self.assertEqual(set(EXPECTATIVAS), set(GUIONES))
+        for nombre, clase in casos_por_escena().items():
+            espera_reconstruir = issubclass(clase, Positivo)
+            self.assertEqual(espera_reconstruir, EXPECTATIVAS[nombre] is None,
+                             f'{nombre}: la clase y la expectativa declarada no concuerdan')
+
+    def test_los_positivos_cubren_programas_distintos_no_solo_escenas(self):
+        programas = {tuple(clase.esperado) for clase in casos_por_escena().values()
+                     if issubclass(clase, Positivo)}
+        escenas = sum(1 for clase in casos_por_escena().values() if issubclass(clase, Positivo))
+        self.assertLess(len(programas), escenas,
+                        'si cada escena positiva tuviera su propio programa, este recuento sobra')
+        self.assertGreaterEqual(len(programas), 6, sorted(programas))

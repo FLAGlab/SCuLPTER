@@ -18,6 +18,28 @@ export function necesitaInterprete({ bloques = 0, pendientes = [], incertidumbre
   return bloques > 0 && !moviendo && !incertidumbre && pendientes.length === 0;
 }
 
+// Autoridad única sobre el programa físico: el navegador solo valida lo que se construye a mano.
+// Lo que viene de las cámaras lo decide el servicio, y la página se limita a recorrer su traza.
+export function validaElNavegador({ origen = "manual" } = {}) {
+  return origen !== "camara";
+}
+
+// Un veredicto solo vale para la versión confirmada que el servicio publica ahora. Una respuesta
+// tardía de Scala, o una de una versión anterior, no puede activar nada.
+export function veredictoVigente(lectura, veredicto) {
+  const version = lectura && lectura.estado === "confirmada" ? lectura.version : null;
+  if (!version || !veredicto || veredicto.version !== version) return null;
+  return veredicto;
+}
+
+// Motivo por el que la ejecución física está deshabilitada. Sin veredicto vigente y sin versión
+// confirmada no se ejecuta nada venido de las cámaras, ni siquiera cuando el servicio todavía no
+// ha publicado una lectura.
+export function motivoFisico({ veredicto = null, version = null, motivo = "" } = {}) {
+  if (veredicto || version) return "";
+  return motivo || "La lectura de las cámaras no está confirmada.";
+}
+
 export function veredicto(entrada = {}) {
   const { pendientes = [], incertidumbre = "", moviendo = false, validando = false, resultado = null, origen = "manual" } = entrada;
   if (moviendo) return marcar("moviendo", "En construcción", "Hay una ficha en movimiento. La ejecución anterior ya no corresponde a esta mesa.");

@@ -4,7 +4,7 @@ import threading
 import cv2
 import numpy as np
 
-from plataforma.escena_virtual import (CONFIGURACION_PASOS, HUECO_CONECTOR_MM, Camara, Ficha, camaras_por_omision, centro_de,
+from plataforma.escena_virtual import (CONFIGURACION_PASOS, HUECO_CONECTOR_MM, Camara, centro_de,
                                        cobertura, cuadro, escenario_de, guardar_camaras, marco_desde_avance)
 from clasificador_simbolos import SIN_LEER
 from plataforma.fusion import Fusion, puede_ejecutar
@@ -20,13 +20,16 @@ def codificar(imagen):
     return 'data:image/jpeg;base64,' + base64.b64encode(buffer.tobytes()).decode()
 
 
-def _mas_cerca(observaciones, uv, alcance=None):
-    if uv is None or not observaciones:
+ALCANCE_SUELTA_PX = 45.0
+
+
+def _suelta_cerca(sueltas, uv):
+    """Observación que esa cámara entregó y la fusión no pudo situar en ninguna pieza. Se cita
+    tal como la leyó la cámara; nunca se le atribuye el lexema del resultado fusionado."""
+    if uv is None or not sueltas:
         return None
-    elegida = min(observaciones, key=lambda o: np.hypot(o['x'] - uv[0], o['y'] - uv[1]))
-    if alcance is not None and np.hypot(elegida['x'] - uv[0], elegida['y'] - uv[1]) > alcance:
-        return None
-    return elegida
+    elegida = min(sueltas, key=lambda o: np.hypot(o['x'] - uv[0], o['y'] - uv[1]))
+    return elegida if np.hypot(elegida['x'] - uv[0], elegida['y'] - uv[1]) <= ALCANCE_SUELTA_PX else None
 
 
 def procedencia(pieza, verdad):
@@ -140,37 +143,43 @@ class Gemelo:
                     if z[0] > 0 and 0 <= uv[0][0] < camara.resolucion[0] and 0 <= uv[0][1] < camara.resolucion[1]:
                         proyeccion[p['id']] = [float(uv[0][0]), float(uv[0][1])]
             verdad = sorted(self.escena.verdad())
+            sueltas = resultado.get('sueltas') or {}
             piezas = []
             for p in resultado['piezas']:
                 detalle = []
                 lectores = set(p.get('lectores') or [])
-                aportan = set(p.get('camaras') or [])
+                lecturas = p.get('lecturas') or {}
                 for camara in self.escena.camaras:
-                    vista = vistas[camara.id]
-                    uv = vista['proyeccion'].get(p['id'])
+                    uv = vistas[camara.id]['proyeccion'].get(p['id'])
                     fila = {'camara': camara.id, 'nombre': camara.nombre, 'propone': None, 'candidatos': []}
-                    if camara.id in lectores:
-                        elegida = _mas_cerca(vista['observaciones'], uv)
-                        detalle.append({**fila, 'clase': 'asociada', 've': True, 'propone': p['lexema'],
-                                        'candidatos': elegida['candidatos'][:3] if elegida else [],
-                                        'motivo': 'la fusión usó esta lectura para aceptar la ficha'})
+                    usada = lecturas.get(camara.id)
+                    if usada is not None:
+                        ilegible = usada['lexema'] == SIN_LEER
+                        asociada = camara.id in lectores
+                        detalle.append({
+                            **fila, 've': True, 'aporta': True,
+                            'clase': 'asociada' if asociada else 'ilegible' if ilegible else 'contradice',
+                            'propone': None if ilegible else usada['lexema'],
+                            'candidatos': usada['candidatos'],
+                            'caja': usada['caja'], 'calidad': usada['calidad'],
+                            'motivo': 'la fusión usó esta lectura para aceptar la ficha' if asociada
+                            else 'la detectó pero no pudo identificarla' if ilegible
+                            else 'propone otro símbolo y la fusión no la usó'})
                         continue
                     if uv is None:
-                        detalle.append({**fila, 'clase': 'fuera', 've': False,
+                        detalle.append({**fila, 'clase': 'fuera', 've': False, 'aporta': False,
                                         'motivo': 'la ficha cae fuera de su encuadre'})
                         continue
-                    elegida = _mas_cerca(vista['observaciones'], uv, 45.0)
-                    if elegida is None:
-                        detalle.append({**fila, 'clase': 'sin_deteccion', 've': False,
+                    libre = _suelta_cerca(sueltas.get(camara.id), uv)
+                    if libre is None:
+                        detalle.append({**fila, 'clase': 'sin_deteccion', 've': False, 'aporta': False,
                                         'motivo': 'la encuadra pero no detectó nada ahí'})
                         continue
-                    ilegible = elegida['lexema'] == SIN_LEER
-                    detalle.append({**fila, 'clase': 'ilegible' if ilegible else 'contradice', 've': True,
-                                    'propone': None if ilegible else elegida['lexema'],
-                                    'candidatos': elegida['candidatos'][:3],
-                                    'motivo': 'la detectó pero no pudo identificarla' if ilegible
-                                    else 'propone otro símbolo y la fusión no la usó',
-                                    'aporta': camara.id in aportan})
+                    detalle.append({**fila, 'clase': 'sin_asociar', 've': True, 'aporta': False,
+                                    'propone': None if libre['lexema'] == SIN_LEER else libre['lexema'],
+                                    'candidatos': libre['candidatos'],
+                                    'caja': libre['caja'], 'calidad': libre['calidad'],
+                                    'motivo': 'detectó algo ahí que la fusión no pudo situar en esta ficha'})
                 piezas.append({**p, 'procedencia': procedencia(p, verdad), 'vistas': detalle,
                                'respaldo': len(lectores),
                                'provisional': bool(p.get('edad_ms', 0) > 400)})

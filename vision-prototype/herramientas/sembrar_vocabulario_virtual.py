@@ -1,8 +1,8 @@
 import argparse
+import hashlib
 import json
 import os
 import sys
-import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,7 +23,11 @@ MARCO = 16
 GROSOR = 16
 
 
-FORMAS = ('circulo', 'triangulo', 'cuadrado', 'rombo', 'cruz', 'chevron', 'barras', 'gota')
+# El cuadrado está fuera a propósito: el buje roscado del bloque es un cuadrado del tamaño de
+# una ficha, y con esa forma en el catálogo una sola vista lo leía como la etiqueta que la tenía
+# (0.457, por encima del umbral) y la fusión confirmaba una ficha que no estaba sobre la mesa.
+# Un dibujo libre es arbitrario; una pieza del montaje no. Lo medido está en GEMELO_DIGITAL.md.
+FORMAS = ('circulo', 'triangulo', 'rombo', 'cruz', 'chevron', 'barras', 'gota')
 
 
 def _forma(lienzo, nombre, centro, radio, color, grosor):
@@ -115,6 +119,15 @@ def recortar_a_tinta(imagen, holgura=0.0):
     return imagen[max(0, y0 - my):min(alto, y1 + my), max(0, x0 - mx):min(ancho, x1 + mx)]
 
 
+def nombre_referencia(tipo, nombre):
+    """Nombre derivado del símbolo, no aleatorio: dos preparaciones de una copia limpia producen
+    los mismos archivos y el mismo simbolos.json byte a byte. El dibujo libre que recibe cada
+    etiqueta de pila sí depende de los que ya estuvieran sembrados, así que añadir etiquetas a un
+    catálogo existente no equivale a prepararlo desde cero."""
+    digest = hashlib.sha256(f'{tipo}:{nombre}'.encode()).hexdigest()
+    return f'ref_{tipo}_{digest[:16]}.png'
+
+
 def sembrar(nombres, datos):
     carpeta = os.path.join(datos, 'referencias')
     os.makedirs(carpeta, exist_ok=True)
@@ -134,7 +147,7 @@ def sembrar(nombres, datos):
             if not disponibles:
                 raise ValueError('No quedan dibujos distintos disponibles para más etiquetas de pila.')
             dibujo = disponibles.pop(0)
-        archivo = 'ref_' + uuid.uuid4().hex + '.png'
+        archivo = nombre_referencia(tipo, nombre)
         if not cv2.imwrite(os.path.join(carpeta, archivo), rendir_parametro(ficha(nombre, tipo, dibujo), _clase_parametro(nombre))):
             raise ValueError(f'No se pudo escribir la ficha de {nombre}.')
         entrada = {'lexema': token, 'nombre': nombre, 'tipo': tipo, 'foto': archivo,
@@ -158,6 +171,8 @@ def main():
     for entrada in nuevos:
         print(f"  {entrada['lexema']:<10} {entrada['tipo']:<10} {entrada['foto']}")
     print('\nProcedencia "render": la ficha de parámetro no tiene STL propio, es una caja provisional. No acredita nada sobre fichas impresas.')
+    print('El nombre de cada referencia sale del símbolo. El dibujo de una etiqueta de pila depende')
+    print('de los ya sembrados: para reproducir un catálogo, siémbralo entero sobre una carpeta vacía.')
 
 
 if __name__ == '__main__':

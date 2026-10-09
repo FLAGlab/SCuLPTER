@@ -1,3 +1,5 @@
+import hashlib
+
 import cv2
 import numpy as np
 
@@ -14,6 +16,8 @@ class Escenario:
     def __init__(self):
         self.lotes = []
         self.texturas = []
+        self._unido = None
+        self._firma = None
 
     def agregar_textura(self, esquinas, imagen):
         esquinas = np.asarray(esquinas, float)
@@ -28,15 +32,30 @@ class Escenario:
         if triangulos is None or not len(triangulos):
             return
         self.lotes.append((np.asarray(triangulos, float), np.asarray(color, float), marca))
+        self._unido = None
+        self._firma = None
 
     def total(self):
         return int(sum(len(t) for t, _, _ in self.lotes))
 
     def _juntar(self):
-        tris = np.concatenate([t for t, _, _ in self.lotes])
-        colores = np.concatenate([np.repeat(c[None, :], len(t), axis=0) for t, c, _ in self.lotes])
-        marcas = np.concatenate([np.full(len(t), -1 if m is None else m) for t, _, m in self.lotes])
-        return tris, colores, marcas
+        if self._unido is None:
+            tris = np.concatenate([t for t, _, _ in self.lotes])
+            colores = np.concatenate([np.repeat(c[None, :], len(t), axis=0) for t, c, _ in self.lotes])
+            marcas = np.concatenate([np.full(len(t), -1 if m is None else m) for t, _, m in self.lotes])
+            self._unido = (tris, colores, marcas)
+        return self._unido
+
+    def firma(self):
+        if self._firma is None:
+            resumen = hashlib.blake2b(digest_size=16)
+            for arreglo in self._juntar() if self.lotes else ():
+                resumen.update(np.ascontiguousarray(arreglo).tobytes())
+            for esquinas, imagen in self.texturas:
+                resumen.update(np.ascontiguousarray(esquinas, float).tobytes())
+                resumen.update(np.ascontiguousarray(imagen).tobytes())
+            self._firma = resumen.hexdigest()
+        return self._firma
 
     def rasterizar(self, modelo, resolucion, fondo=(208, 208, 208)):
         ancho, alto = int(resolucion[0]), int(resolucion[1])

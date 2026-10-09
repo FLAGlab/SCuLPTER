@@ -15,6 +15,23 @@ INTR = {'camera_matrix': K, 'dist_coeffs': [0.]*5, 'image_size': [640, 480]}
 CONFIG = {**CONFIGURACION, 'medido': True, 'paso_mm': 80.}
 
 
+def area_de(puntos, holgura=20.):
+    """Mesa declarada que termina donde termina el montaje.
+
+    Estas pruebas miden la reconstrucción de la cadena con cámaras sintéticas a 0.86 px/mm, donde
+    una ficha real no se resolvería: ninguna puede acreditar que el hueco de continuación esté
+    vacío. Declarar el área deja esa comprobación fuera de su alcance, que es donde corresponde;
+    se ejercita en tests/test_lector.py, tests/test_ensayo_continuo.py y la matriz del gemelo."""
+    xs = [float(p[1][0]) for p in puntos]
+    ys = [float(p[1][1]) for p in puntos]
+    return {'x_min': min(xs) - holgura, 'x_max': max(xs) + holgura,
+            'y_min': min(ys) - holgura, 'y_max': max(ys) + holgura}
+
+
+def con_area(config, puntos):
+    return {**config, 'area_trabajo': area_de(puntos)}
+
+
 def fuente(id, centro, puntos, t=10., profundidad=False, secuencia=1):
     r = np.diag([1., -1., -1.])
     pose = {'rot': r.tolist(), 'tras': (-r @ np.array(centro)).tolist()}
@@ -36,9 +53,10 @@ class FusionTest(unittest.TestCase):
         return [fuente('arriba', [-100, -70, 600], self.puntos, t, secuencia=secuencia), fuente('lado', [100, 70, 600], self.puntos, t, secuencia=secuencia)]
 
     def estable(self):
+        config = con_area(CONFIG, self.puntos)
         for n in range(11):
             t = 10.+n*.1
-            r = self.fusion.actualizar(self.escena(t, n+1), CONFIG, t)
+            r = self.fusion.actualizar(self.escena(t, n+1), config, t)
         return r
 
     def test_triangulacion_y_escala_metrica(self):
@@ -76,7 +94,7 @@ class FusionTest(unittest.TestCase):
         a = fuente('arriba', [-100,-70,600], self.puntos, 11.1, secuencia=12)
         b = fuente('lado', [100,70,600], [], 11.1, secuencia=12)
         d = fuente('kinect', [0,0,600], [], 11.1, profundidad=True, secuencia=12)
-        r = self.fusion.actualizar([a,b,d], CONFIG, 11.1)
+        r = self.fusion.actualizar([a,b,d], con_area(CONFIG, self.puntos), 11.1)
         self.assertEqual(ids, [p['id'] for p in r['piezas']])
         self.assertTrue(r['estable'], r)
 

@@ -1,13 +1,18 @@
+import copy
+import hashlib
 import json
+from collections import OrderedDict
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from adjacency import ARIDAD_BLOQUE
+# Reexportados a propósito: las medidas viven en `plataforma.medidas`, pero pruebas y
+# herramientas llevan tiempo importándolas desde aquí y esos nombres se mantienen.
+from plataforma.medidas import (AREA_TRABAJO, CONFIGURACION_PASOS, PASO_CORTO_MM,  # noqa: F401
+                                PASO_LARGO_MM, PLANO_FICHA_MAX_MM, PLANO_FICHA_MIN_MM)
 
-PASO_CORTO_MM = 95.0
-PASO_LARGO_MM = 115.0
 LADO_FICHA_MM = 15.0
 ALTO_OPERACION_MM = 37.0
 ALTO_PARAMETRO_MM = 23.0
@@ -22,10 +27,6 @@ FAMILIA = {'PUSH': 'bin', 'MOV': 'bin', 'ADD': 'ari', 'SUB': 'ari', 'MUL': 'ari'
 COLOR_MANO = (150, 170, 205)
 
 RAIZ = Path(__file__).resolve().parents[1]
-PLANO_FICHA_MIN_MM = 22.0
-PLANO_FICHA_MAX_MM = 56.0
-CONFIGURACION_PASOS = {'modo': 'fusion', 'paso_mm': PASO_CORTO_MM, 'paso_2_mm': PASO_LARGO_MM, 'medido': True,
-                       'plano_min_mm': PLANO_FICHA_MIN_MM, 'plano_max_mm': PLANO_FICHA_MAX_MM}
 
 
 def intrinsecos(fov_grados, resolucion):
@@ -495,20 +496,68 @@ def escenario_de(escena, detalle=None):
     return mundo
 
 
-def render(escena, camara, detalle=None, mundo=None):
+VISTAS_EN_MEMORIA = 64
+_imagenes = OrderedDict()
+_lecturas = OrderedDict()
+
+
+def olvidar_vistas():
+    _imagenes.clear()
+    _lecturas.clear()
+
+
+def _recordar(memoria, clave, calcular):
+    if clave in memoria:
+        memoria.move_to_end(clave)
+        return memoria[clave]
+    valor = memoria[clave] = calcular()
+    while len(memoria) > VISTAS_EN_MEMORIA:
+        memoria.popitem(last=False)
+    return valor
+
+
+def _firma_vista(mundo, camara):
     m = camara.modelo()
     if m is None:
         raise ValueError(f'La cámara {camara.id} no tiene una pose utilizable.')
-    lienzo, _, _ = (mundo or escenario_de(escena, detalle)).rasterizar(m, camara.resolucion, COLOR_MESA)
-    return lienzo
+    resumen = hashlib.blake2b(mundo.firma().encode(), digest_size=16)
+    for clave in ('r', 't', 'k'):
+        resumen.update(np.ascontiguousarray(m[clave], float).tobytes())
+    resumen.update(repr(tuple(camara.resolucion)).encode())
+    return m, resumen.hexdigest()
+
+
+def vista(escena, camara, vocabulario=None, detalle=None, mundo=None):
+    """Imagen y observaciones de una cámara.
+
+    La clave combina la geometría ya montada, la pose e intrínsecos de la cámara y la revisión
+    del vocabulario, así que mover una cámara, tapar o retirar una ficha produce otra clave y
+    obliga a rasterizar y a reconocer de nuevo. Solo se reutiliza lo idéntico.
+    """
+    mundo = mundo if mundo is not None else escenario_de(escena, detalle)
+    modelo_camara, clave = _firma_vista(mundo, camara)
+    imagen = _recordar(_imagenes, clave,
+                       lambda: mundo.rasterizar(modelo_camara, camara.resolucion, COLOR_MESA)[0])
+    if vocabulario is None:
+        return imagen, [], []
+    from plataforma.lectura import leer
+
+    def leida():
+        _, lecturas, tinta = leer(imagen, vocabulario)
+        return [l['observacion'] for l in lecturas], tinta
+
+    observaciones, tinta = _recordar(_lecturas, (clave, vocabulario.revision), leida)
+    return imagen, copy.deepcopy(observaciones), copy.deepcopy(tinta)
+
+
+def render(escena, camara, detalle=None, mundo=None):
+    return vista(escena, camara, None, detalle, mundo)[0]
 
 
 def cuadro(escena, camara, vocabulario, instante, secuencia, mundo=None):
-    from plataforma.lectura import leer_cuadro
-    imagen = render(escena, camara, mundo=mundo)
-    _, lecturas = leer_cuadro(imagen, vocabulario)
+    imagen, observaciones, tinta = vista(escena, camara, vocabulario, mundo=mundo)
     return imagen, {'secuencia': secuencia, 'instante': instante, 'resolucion': list(camara.resolucion),
-                    'observaciones': [l['observacion'] for l in lecturas], 'profundidad': None}
+                    'observaciones': observaciones, 'tinta': tinta, 'profundidad': None}
 
 
 def fuentes(escena, vocabulario, instante, secuencia):
@@ -534,14 +583,18 @@ FOV_CAMARA = 40.0
 PASO_CAMARA_MM = 46.0
 DESVIOS_CAMARA_MM = (-15.0, -70.0)
 CAMARAS_MAXIMAS = 16
+MARGEN_CAMARA_MM = 0.0
 
 
 def camaras_por_omision(centro=(60., 0., 20.), fichas=None, fov=FOV_CAMARA, altura=ALTURA_CAMARA_MM,
-                        separacion=PASO_CAMARA_MM):
+                        separacion=PASO_CAMARA_MM, margen=None):
+    margen = MARGEN_CAMARA_MM if margen is None else float(margen)
     centro = np.asarray(centro, float)
     if fichas:
         puntos = np.array([f.centro for f in fichas], float)
         minimo, maximo = puntos.min(axis=0), puntos.max(axis=0)
+        minimo = minimo - np.array([margen, margen, 0.])
+        maximo = maximo + np.array([margen, margen, 0.])
     else:
         minimo = maximo = centro
     altura_mesa = float(maximo[2]) if fichas else float(centro[2])

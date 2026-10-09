@@ -198,7 +198,7 @@ def ejemplo_bucle(vocabulario):
 
 
 GUIONES.update({
-    'ejemplo_condicion': (ejemplo_condicion, False,
+    'ejemplo_condicion': (ejemplo_condicion, True,
                           'Ejemplo «condicion»: salto condicional con tres pilas y un literal negativo.'),
     'ejemplo_bucle': (ejemplo_bucle, False,
                       'Ejemplo «bucle»: cinco bloques con un JMP que vuelve atrás.'),
@@ -222,11 +222,35 @@ def cobertura_parcial(vocabulario):
     return escena, lambda escena, paso: None
 
 
+def sin_encuadrar_el_segundo(vocabulario):
+    """Campo estrecho sobre el primer bloque: el segundo no deja ni un píxel en ninguna cámara.
+    Ninguna mejora del detector puede recuperar evidencia que nunca se capturó, así que este
+    caso solo queda pendiente si se comprueba que la continuación de la cadena está cubierta."""
+    escena = _preparar(PROGRAMA_BASE, vocabulario)
+    primeras = [f for f in escena.fichas if f.centro[0] < 60]
+    escena.camaras = camaras_por_omision(centro_de(primeras), primeras, fov=18.0, altura=200.0)
+    return escena, lambda escena, paso: None
+
+
 def dos_webcams(vocabulario):
     escena = _preparar(PROGRAMA_BASE, vocabulario)
     centro = centro_de(escena.fichas)
     escena.camaras = [Camara('web1', 'Webcam izquierda', [centro[0] - 55, -45., 300.], [centro[0] - 20, 0., 30.], 52.),
                       Camara('web2', 'Webcam derecha', [centro[0] + 55, -45., 300.], [centro[0] + 20, 0., 30.], 52.)]
+    return escena, lambda escena, paso: None
+
+
+def dos_webcams_corta(vocabulario):
+    """La disposición de dos webcams que sí lee un programa entero, hallada barriendo separación,
+    retroceso, altura y campo con `herramientas/ensayo_dos_webcams.py`. Lo que la desbloquea no
+    es resolución: es un campo lo bastante ancho para cubrir también los huecos donde la cadena
+    podría seguir. Sube a 380 mm y baja a 2.5 px/mm, por debajo de los 3.1 del banco de ocho."""
+    escena = _preparar(['PUSH a 3'], vocabulario)
+    centro = centro_de(escena.fichas)
+    mira = [float(centro[0]), float(centro[1]), 30.]
+    escena.camaras = [
+        Camara('web1', 'Webcam izquierda', [centro[0] - 30., -45., 380.], mira, 40.),
+        Camara('web2', 'Webcam derecha', [centro[0] + 30., -45., 380.], mira, 40.)]
     return escena, lambda escena, paso: None
 
 
@@ -239,11 +263,59 @@ def dos_pilas(vocabulario):
 
 
 GUIONES.update({
-    'contradiccion': (vistas_contradictorias, False,
-                      'Una cámara enfrente, al otro lado de la mesa, ve la flecha girada.'),
+    'contradiccion': (vistas_contradictorias, True,
+                      'Una cámara enfrente, al otro lado de la mesa, ve la flecha girada; las demás la dejan en minoría.'),
     'cobertura_parcial': (cobertura_parcial, False,
-                          'Tres cámaras que solo cubren el primer bloque; el segundo queda sin evidencia.'),
-    'dos_webcams': (dos_webcams, True, 'Solo dos cámaras, como dos webcams plausibles sobre la mesa.'),
+                          'Tres cámaras a un solo lado; del segundo bloque solo llega evidencia parcial.'),
+    'sin_encuadrar': (sin_encuadrar_el_segundo, False,
+                      'Campo estrecho sobre el primer bloque: del segundo no se captura ni un píxel.'),
+    'dos_webcams': (dos_webcams, False, 'Solo dos webcams sobre la cadena de dos bloques.'),
+    'dos_webcams_corta': (dos_webcams_corta, True,
+                          'Dos webcams a 380 mm y 40° de campo sobre una sola instrucción.'),
     'una_instruccion': (una_instruccion, True, 'Una sola instrucción: PUSH a 3.'),
     'dos_pilas': (dos_pilas, True, 'Dos pilas: PUSH a 3 · PUSH b 5 · MOV a b.'),
 })
+
+
+EXPECTATIVAS = {
+    'una_instruccion': None,
+    'completa': None,
+    'ejecutable': None,
+    'dos_pilas': None,
+    'repetidos': None,
+    'fondo': None,
+    'soportes': None,
+    'desacuerdo': None,
+    'contradiccion': None,
+    'ejemplo_condicion': None,
+    'oclusion': 'una mano tapa el literal y las dos filas de cámaras lo pierden a la vez',
+    'movimiento': 'la mano cruza la mesa, así que el montaje nunca se queda quieto los 0.8 s',
+    'bloque_tapa': 'un bloque suelto tapa el literal desde arriba',
+    'retirada': 'falta el segundo bloque entero desde el paso 5',
+    'retirar_una': 'de las dos fichas iguales desaparece una',
+    'reaparece': 'el literal falta entre los pasos 4 y 8',
+    'fondo_dificil': 'la hoja impresa aporta recuadros con dígitos que no son fichas del montaje',
+    'cobertura_parcial': 'tres cámaras a un solo lado: del segundo bloque solo hay evidencia parcial',
+    'sin_encuadrar': 'ninguna cámara encuadra dónde iría el segundo bloque',
+    'dos_webcams': 'con dos webcams el campo no cubre a la vez las dos fichas contiguas y los '
+                   'huecos donde la cadena de dos bloques podría seguir',
+    'dos_webcams_corta': None,
+    'inclinada': 'el bloque inclinado 35° deja los parámetros sin una dirección de lectura inequívoca',
+    'vertical': 'la cadena vertical saca las fichas de la banda de planos declarada',
+    'regresa': 'de los seis bloques girados solo se localizan dos: se informa como grupos sin '
+               'unión y el ciclo no llega a diagnosticarse',
+    'te': 'solo se localizan dos de los tres bloques, así que no sale una única cadena de '
+          'operaciones; la confluencia en T no llega a diagnosticarse',
+    'separados': 'son dos montajes distintos y se informan como grupos sin unión, aunque de los '
+                 'tres bloques solo se localicen dos',
+    'ejemplo_bucle': 'de los cinco bloques se localizan cuatro y la cadena se parte en grupos sin unión',
+}
+
+assert set(EXPECTATIVAS) == set(GUIONES), sorted(set(EXPECTATIVAS) ^ set(GUIONES))
+_DISCREPAN = [n for n in GUIONES if GUIONES[n][1] != (EXPECTATIVAS[n] is None)]
+assert not _DISCREPAN, f'GUIONES y EXPECTATIVAS no concuerdan en {_DISCREPAN}'
+
+RAPIDAS = ['una_instruccion', 'completa', 'repetidos', 'desacuerdo', 'soportes',
+           'dos_webcams_corta', 'cobertura_parcial', 'sin_encuadrar', 'dos_webcams',
+           'oclusion', 'retirada', 'separados', 'te', 'fondo_dificil']
+assert not set(RAPIDAS) - set(GUIONES)

@@ -9,7 +9,7 @@ import numpy as np
 
 from herramientas.evaluar_sesion import evaluar
 from herramientas.registrar_sesion import seleccionar
-from test_fusion import fuente, INTR, CONFIG
+from tests.test_fusion import area_de, fuente, INTR, CONFIG
 
 
 class EnsayoTest(unittest.TestCase):
@@ -26,7 +26,8 @@ class EnsayoTest(unittest.TestCase):
             carpeta = Path(temporal)
             sesion = {'version': 1, 'camaras': [{'id': 'a', 'nombre': 'A'}, {'id': 'b', 'nombre': 'B'}],
                       'intrinsecos': {'a': INTR, 'b': INTR}, 'poses': {'a': a['pose'], 'b': b['pose']},
-                      'fusion': CONFIG, 'esperado': 'PUSH a 2', 'escena': 'completa', 'debe_ejecutar': True}
+                      'fusion': {**CONFIG, 'area_trabajo': area_de(puntos)},
+                      'esperado': 'PUSH a 2', 'escena': 'completa', 'debe_ejecutar': True}
             (carpeta / 'sesion.json').write_text(json.dumps(sesion))
             imagen = np.full((480, 640, 3), 255, np.uint8)
             observaciones = []

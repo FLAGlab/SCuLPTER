@@ -1,0 +1,23 @@
+# Analizador estático acotado a propósito.
+#
+# Solo se activan las reglas de corrección de Pyflakes ("F"): importaciones sin usar, nombres no
+# definidos, variables locales asignadas y nunca leídas, f-strings sin marcador. Son defectos
+# reales, no preferencias de estilo.
+#
+# Queda FUERA, deliberadamente, todo lo que provocaría una reforma del árbol:
+#   - "E"/"W" (pycodestyle): marcarían casi cada línea de fusion.py, cuya línea más larga tiene
+#     349 caracteres. Reformatearlas sería un diff masivo sin relación con la legibilidad real.
+#   - El formateador (`ruff format`): el proyecto mezcla comillas simples y dobles por archivo
+#     (`vocabulario.py` y `dispositivos.py` usan dobles; el resto, simples). Unificarlas tocaría
+#     más de mil líneas y ningún criterio del sistema.
+#
+# Uso:  ruff check .        (no instalado en este equipo; `pip install ruff`)
+
+line-length = 200
+target-version = "py311"
+
+[lint]
+select = ["F"]
+
+[format]
+exclude = ["*"]

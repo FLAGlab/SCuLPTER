@@ -1,35 +1,13 @@
-import json
-import subprocess
-import sys
 import unittest
-from pathlib import Path
 
-from clasificador_simbolos import MARGEN, UMBRAL
-from plataforma.escena_virtual import CONFIGURACION_PASOS, fuentes, render
+from plataforma.escena_virtual import CONFIGURACION_PASOS, fuentes, olvidar_vistas, render
 from plataforma.fusion import Fusion, puede_ejecutar
 from plataforma.guiones import completa
 from plataforma.lectura import leer_cuadro
-from plataforma.vocabulario import Vocabulario
 
-RAIZ = Path(__file__).resolve().parents[1]
-DATOS = RAIZ / 'datos_locales' / 'virtual'
-INTERPRETE = RAIZ / 'simulador_3d' / 'generado' / 'interprete.js'
+from tests.entorno import en_scala, vocabulario
+
 ESPERADO = ['PUSH a 3', 'ADD a']
-
-
-def ejecutar_en_scala(codigo):
-    guion = (
-        "import {sculptEjecutar} from %s;"
-        "const r = sculptEjecutar(process.argv[1] + '\\n', 2000);"
-        "process.stdout.write('@@' + JSON.stringify({valido: r.valido, etapa: r.etapa, "
-        "decide: r.decide, pasos: r.pasos ? r.pasos.length : 0, final: r.pasos ? r.pasos.at(-1) : null}) + '@@');"
-    ) % json.dumps(INTERPRETE.as_uri())
-    salida = subprocess.run([sys.executable and 'node', '--input-type=module', '-e', guion, codigo],
-                            capture_output=True, text=True, timeout=120)
-    marca = salida.stdout.split('@@')
-    if len(marca) < 3:
-        raise AssertionError(f'el intérprete no respondió: {salida.stdout[-300:]} {salida.stderr[-300:]}')
-    return json.loads(marca[1])
 
 
 class DesdeImagenes(unittest.TestCase):
@@ -39,9 +17,7 @@ class DesdeImagenes(unittest.TestCase):
     def setUpClass(cls):
         if cls.guion is None:
             raise unittest.SkipTest('clase base')
-        if not INTERPRETE.exists():
-            raise unittest.SkipTest('falta generado/interprete.js; ejecuta npm run build:simulator')
-        cls.vocabulario = Vocabulario(RAIZ, DATOS)
+        cls.vocabulario = vocabulario()
         cls.escena, _ = cls.guion(cls.vocabulario)
         cls.fusion = Fusion()
         cls.resultado = None
@@ -70,7 +46,9 @@ class AceptacionEscenaMinimaTest(DesdeImagenes):
 
     def test_el_render_es_determinista(self):
         for camara in self.escena.camaras:
-            primero, segundo = render(self.escena, camara), render(self.escena, camara)
+            primero = render(self.escena, camara)
+            olvidar_vistas()
+            segundo = render(self.escena, camara)
             self.assertTrue((primero == segundo).all(), f'{camara.id} rinde distinto con la misma escena')
 
     def test_toda_pieza_confirmada_la_sostienen_dos_camaras(self):
@@ -91,7 +69,7 @@ class AceptacionEscenaMinimaTest(DesdeImagenes):
         self.assertEqual(self.resultado['avisos'], [])
 
     def test_scala_recibe_el_candidato_y_emite_su_veredicto(self):
-        r = ejecutar_en_scala(self.codigo)
+        r = en_scala(self.codigo)
         self.assertEqual(r['etapa'], 'runtime', r)
         self.assertEqual(r['decide'], 'lenguaje')
         self.assertEqual(r['pasos'], 1)
@@ -99,4 +77,4 @@ class AceptacionEscenaMinimaTest(DesdeImagenes):
 
     def test_la_certeza_visual_no_es_validez_semantica(self):
         self.assertTrue(puede_ejecutar(self.resultado))
-        self.assertFalse(ejecutar_en_scala(self.codigo)['valido'])
+        self.assertFalse(en_scala(self.codigo)['valido'])

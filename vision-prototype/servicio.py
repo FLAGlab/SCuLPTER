@@ -79,13 +79,41 @@ def crear_handler(estado):
                     self.enviar(foto.read_bytes(), tipo='image/png' if foto.suffix == '.png' else 'image/jpeg')
                 elif ruta.startswith('/api/imagen/'):
                     partes = ruta.split('/')
+                    pedida = parse_qs(urlparse(self.path).query).get('secuencia', [None])[0]
                     with estado.lock:
                         cam = estado.camaras[partes[3]]
+                    cual = partes[4] if len(partes) > 4 else ''
+                    # La página pide el cuadro cuyas cajas muestra. Se sirve ese y no otro:
+                    # devolver una imagen distinta dejaría dibujar las cajas de una captura
+                    # sobre la imagen de otra.
+                    exacta = pedida if pedida is not None and pedida.isdigit() else None
                     with cam.lock:
-                        jpg = cam.jpeg_depth if len(partes) > 4 and partes[4] == 'depth' else cam.jpeg
+                        if cual == 'depth':
+                            jpg, sello = cam.jpeg_depth, None
+                        elif cual == 'limpio' and exacta is not None:
+                            jpg, sello = getattr(cam, 'limpios', {}).get(int(exacta)), int(exacta)
+                        elif cual == 'limpio':
+                            jpg, sello = getattr(cam, 'jpeg_limpio', None), getattr(cam, 'jpeg_secuencia', None)
+                        else:
+                            jpg, sello = cam.jpeg, cam.secuencia
+                        ultima = getattr(cam, 'jpeg_secuencia', None)
+                    if not jpg and pedida is not None:
+                        self.enviar({'error': 'El cuadro pedido ya no está disponible.',
+                                     'secuencia': ultima}, 409)
+                        return
                     if not jpg:
                         raise ValueError('Todavía no hay imagen.')
-                    self.enviar(jpg, tipo='image/jpeg')
+                    if pedida is not None and sello is not None and str(sello) != str(pedida):
+                        self.enviar({'error': 'El cuadro pedido ya no está disponible.',
+                                     'secuencia': sello}, 409)
+                        return
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Content-Length', str(len(jpg)))
+                    if sello is not None:
+                        self.send_header('X-Secuencia', str(sello))
+                    self.end_headers()
+                    self.wfile.write(jpg)
                 elif ruta.startswith('/api/'):
                     self.enviar({'error': 'Ruta desconocida.'}, 404)
                 else:

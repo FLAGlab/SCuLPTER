@@ -5,19 +5,14 @@ import cv2
 import numpy as np
 
 from plataforma.escena_virtual import (CONFIGURACION_PASOS, Conector, Ficha, Fondo, Soporte, Te,
-                                       fuentes, marco_desde_avance, render, rumbos)
+                                       fuentes, marco_desde_avance, olvidar_vistas, render, rumbos)
 from plataforma.fusion import Fusion, componentes, diagnosticar_grafo, puede_ejecutar, reconstruir
 from plataforma.guiones import GUIONES
 from clasificador_simbolos import SIN_LEER
-from plataforma.vocabulario import Vocabulario
 
-RAIZ = __file__.rsplit('/tests/', 1)[0]
-DATOS = RAIZ + '/datos_locales/virtual'
+from tests.entorno import vocabulario
+
 PASOS = (95.0, 115.0)
-
-
-def vocabulario():
-    return Vocabulario(RAIZ, DATOS)
 
 
 def pieza(n, lexema, xyz, camaras=('a', 'b')):
@@ -200,7 +195,9 @@ class EscenasDelAlbumTest(unittest.TestCase):
         for nombre in ('vertical', 'inclinada', 'te', 'regresa', 'separados', 'soportes', 'fondo'):
             escena, _ = GUIONES[nombre][0](self.vocabulario)
             camara = escena.camaras[0]
-            self.assertTrue((render(escena, camara) == render(escena, camara)).all(), nombre)
+            primero = render(escena, camara)
+            olvidar_vistas()
+            self.assertTrue((primero == render(escena, camara)).all(), nombre)
 
 
 class IdentidadDeFichasTest(unittest.TestCase):

@@ -80,6 +80,29 @@
   <div class="sec mesa-solo" id="sec-seleccion" hidden>
     <div id="seleccion"></div>
   </div>
+  <div class="sec mesa-solo" id="sec-editor-codigo">
+    <div class="sec-head">Editor SCuLPT</div>
+    <label class="editor-etiqueta" for="editor-codigo-texto">Entrada</label>
+    <textarea id="editor-codigo-texto" rows="10" spellcheck="false" placeholder="PUSH a 3" aria-describedby="editor-codigo-estado"></textarea>
+    <div class="editor-acciones">
+      <button class="accion" id="editor-limpiar">Limpiar</button>
+      <button class="accion" id="editor-lex">Lex</button>
+      <button class="accion" id="editor-parse">Parse</button>
+      <button class="accion primaria" id="editor-construir">Construir bloques</button>
+    </div>
+    <button class="editor-enlace" id="editor-desde-mesa">Copiar texto de la mesa al editor</button>
+    <p id="editor-codigo-estado" class="nota" role="status">Escribe un programa, por ejemplo PUSH a 3.</p>
+    <details class="editor-salida"><summary>Salida del lexer</summary><pre id="editor-lexemas">Haz clic en Lex.</pre></details>
+    <details class="editor-salida"><summary>Salida del parser</summary><pre id="editor-arbol">Haz clic en Parse.</pre></details>
+    <div class="sec-head editor-pasos-titulo">Intérprete</div>
+    <div class="editor-acciones">
+      <button class="accion" id="editor-reiniciar">Reiniciar</button>
+      <button class="accion" id="editor-atras">Atrás</button>
+      <button class="accion primaria" id="editor-siguiente">Siguiente paso</button>
+      <button class="accion" id="editor-todo">Ejecutar todo</button>
+    </div>
+    <p class="nota">Las pilas y el paso actual aparecen en “Paso a paso” debajo.</p>
+  </div>
   <div class="sec mesa-solo">
     <div class="sec-head">Texto SCuLPT</div>
     <div id="codigo-generado"></div>

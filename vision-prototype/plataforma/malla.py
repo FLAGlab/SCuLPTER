@@ -54,10 +54,13 @@ def simplificar(triangulos, rejilla):
 
 
 def bloque(capacidad, rejilla=1.0):
-    nombre = f'bloque_{1 if capacidad == 1 else 2}_param'
-    corrimiento = 50.0 if capacidad == 2 else 30.0
-    crudo = transformar(cargar(nombre), [[0, 0, -1, corrimiento], [0, -1, 0, 25], [-1, 0, 0, 10]])
-    return simplificar(crudo, rejilla)
+    clave = ('bloque', 1 if capacidad == 1 else 2, rejilla)
+    if clave not in _cache:
+        corrimiento = 50.0 if clave[1] == 2 else 30.0
+        crudo = transformar(cargar(f'bloque_{clave[1]}_param'),
+                            [[0, 0, -1, corrimiento], [0, -1, 0, 25], [-1, 0, 0, 10]])
+        _cache[clave] = simplificar(crudo, rejilla)
+    return _cache[clave]
 
 
 def _lamina_operaciones():

@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { OPERACIONES } from '../modelo/montaje.mjs';
 import { crearFichaOperando } from '../escena/piezas.js';
 import { EJEMPLOS, montajeEjemplo } from '../modelo/ejemplos.mjs';
-import { puedeAplicarLectura, codigoLectura, esEstadoActual } from '../vision/lectura-fusion.mjs';
+import { puedeAplicarLectura, esEstadoActual } from '../vision/lectura-fusion.mjs';
 import { veredicto } from '../modelo/ejecucion.mjs';
 import { procedencia } from '../modelo/consola.mjs';
 import { crearEscenaGemelo } from '../vision/escena-gemelo.js';
@@ -22,7 +22,7 @@ const MODELOS = [
   ['tuerca', 'Tuerca', 'Fijación del montaje.'],
 ];
 
-export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, recibir, verGravedad, incertidumbre }) {
+export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, recibir, verGravedad, incertidumbre, veredictoFisico }) {
   const base = location.port === '8000' ? 'http://127.0.0.1:8766' : location.origin;
   let solicitudEstado = 0;
   let estado = null, pagina = 'mesa', firmaCamaras = '', ultimaLectura = '', timer, ocupado = false;
@@ -49,7 +49,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
         </div>
         <div class="frame-label">Lecturas, fusión y programa candidato</div><div class="frame" id="gemelo-conjunto"></div>
       </section>
-      <section data-vista="camaras" hidden><div id="mapa-camaras"></div><p id="camaras-vacio" class="canvas-note">Montaje de referencia. Añade tus cámaras desde el panel derecho para registrar sus posiciones y ver las imágenes reales.</p><div id="camaras-lista"></div></section>
+      <section data-vista="camaras" hidden><div id="mapa-camaras"></div><p id="camaras-vacio" class="canvas-note">Montaje de referencia. Añade tus cámaras desde el panel derecho para registrar sus posiciones y ver las imágenes reales.</p><div id="camaras-lista"></div><div class="frame-label">Evidencia por cámara y mesa estimada</div><div class="frame" id="evidencia-lectura"></div></section>
       <section data-vista="calibracion" hidden><div class="frame-label">Captura actual</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
       <section data-vista="simbolos" hidden><div class="frame-label">Preparación del ensayo</div><div class="frame" id="ensayo-vocabulario"></div><div id="simbolos-lista"></div></section>
       <section data-vista="piezas" hidden><div class="frame-label">Piezas que computan</div><div class="frame pieces">${MODELOS.slice(0,4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><div class="frame-label">Piezas de estructura</div><div class="frame pieces">${MODELOS.slice(4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><p class="canvas-note">Las piezas de estructura sostienen la escultura. No cambian el programa.</p><div class="frame-label" id="modelo-titulo"></div><div class="frame" id="modelo-visor" aria-label="Vista 3D de la pieza"></div></section>
@@ -171,35 +171,118 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     ultimaLectura = '';
     if ($('lectura-aplicar').checked && ultimoAviso !== texto) { ultimoAviso = texto; incertidumbre?.(texto); }
   }
-  let motorLectura = null, firmaLectura = '', dictamenLectura = null, tiempoLectura;
-  function detenerValidacion() { motorLectura?.terminate(); motorLectura = null; clearTimeout(tiempoLectura); }
   function pintarDictamen(origen, titulo, detalle, color) {
     $('lectura-estado').innerHTML = `<div class="dictamen"><span class="dictamen-origen">${escapar(origen)}</span>`
       + `<span><b class="${color}">${escapar(titulo)}</b>${detalle ? `<div class="nota">${escapar(detalle)}</div>` : ''}</span></div>`;
   }
-  function resultadoLectura(principal) {
-    const instrucciones = principal?.instrucciones || [];
-    const incompleta = !!instrucciones.length && !puedeAplicarLectura({...principal, estable:true});
-    if (!puedeAplicarLectura(principal)) {
-      detenerValidacion(); firmaLectura = ''; dictamenLectura = null;
-      const motivo = principal?.avisos?.join(' ') || (incompleta ? 'Revisa las fichas antes de ejecutar.' : principal ? 'Esperando que la lectura se mantenga quieta.' : 'Selecciona una cámara para el programa.');
-      pintarDictamen('mesa', incompleta ? 'Lectura incompleta' : 'Lectura no confirmada', motivo, incompleta ? 'errc' : '');
+  function resultadoLectura(principal, decideServicio, lecturaServicio, veredictoServicio) {
+    // Ruta de decisión única: toda lectura física la decide el servicio y su veredicto llega con
+    // la versión del montaje. La página no valida nada de las cámaras en el navegador.
+    if (!decideServicio) {
+      const leidas = (principal?.instrucciones || []).length;
+      pintarDictamen('cámara', 'Una sola vista: diagnóstico',
+        (leidas ? `${leidas} instrucción${leidas === 1 ? '' : 'es'} leída${leidas === 1 ? '' : 's'} por esta cámara. ` : principal ? 'Esta cámara no lee ninguna instrucción. ' : 'Selecciona una cámara para el programa. ')
+        + 'Este modo no habilita la ejecución física: cambia a «Combinar cámaras» para que el servicio decida.',
+        'avisoc');
       return;
     }
-    const firma = principal.id + codigoLectura(principal);
-    if (firma !== firmaLectura) {
-      detenerValidacion(); firmaLectura = firma; dictamenLectura = null;
-      motorLectura = new Worker(new URL('../interprete-worker.js', import.meta.url), {type:'module'});
-      const terminar = resultado => { if (firmaLectura !== firma) return; detenerValidacion(); dictamenLectura = resultado; };
-      motorLectura.onmessage = ({data}) => terminar(data.resultado);
-      motorLectura.onerror = () => terminar({valido:false, etapa:'motor', decide:'sistema', mensaje:'No se pudo cargar el intérprete.'});
-      tiempoLectura = setTimeout(() => terminar({valido:false, etapa:'tiempo', decide:'sistema', mensaje:'La validación tardó demasiado.'}), 10000);
-      motorLectura.postMessage({revision:1, codigo:instrucciones.map(i => [i.token,...i.operandos].join(' ')).join('\n')+'\n'});
+    if (!lecturaServicio) {
+      pintarDictamen('mesa', 'Pendiente', 'El servicio todavía no publica una lectura de las cámaras.', 'avisoc');
+      return;
     }
-    if (!dictamenLectura) { pintarDictamen('mesa', 'Validando…', 'Consultando al intérprete.', ''); return; }
-    const v = veredicto({bloques: instrucciones.length, resultado: dictamenLectura, origen: 'camara'});
-    pintarDictamen(procedencia(dictamenLectura), v.titulo, v.detalle, v.color);
+    if (lecturaServicio.estado !== 'confirmada') {
+      const titulo = lecturaServicio.estado === 'estabilizando' ? 'Estabilizando' : 'Pendiente';
+      pintarDictamen('mesa', titulo, lecturaServicio.motivo || 'Esperando que el montaje se quede quieto.', 'avisoc');
+      return;
+    }
+    if (!veredictoServicio) {
+      pintarDictamen('mesa', 'Validando en Scala', `Versión ${lecturaServicio.version}. Esperando el veredicto.`, '');
+      return;
+    }
+    const malo = veredictoServicio.etapa && veredictoServicio.etapa !== 'ok';
+    pintarDictamen('mesa', malo ? `Scala rechaza (${veredictoServicio.etapa})` : 'Scala acepta',
+      `Versión ${veredictoServicio.version}${veredictoServicio.error ? ' · ' + veredictoServicio.error : ''}`,
+      malo ? 'errc' : 'okc');
   }
+
+  const CLASE_CAJA = {asociada: 'caja-usada', contradice: 'caja-contra', ilegible: 'caja-ilegible',
+    sin_asociar: 'caja-suelta'};
+  const ROTULO_CAJA = {asociada: 'la fusión la usó', contradice: 'contradice',
+    ilegible: 'no se pudo leer', sin_asociar: 'sin situar'};
+
+  function cajasDeCamara(c) {
+    // Cada caja sale de la observación de ESTA cámara en ESTE cuadro, clasificada por el
+    // servicio, y se escala con la resolución en la que vienen sus coordenadas, no con el
+    // tamaño de la imagen reducida. Sin cuadro publicado no se dibuja nada.
+    const marco = c.cuadro ? c.resolucion_vistas : null;
+    if (!marco) return '';
+    const [ancho, alto] = marco;
+    const escala = (v, total) => (100 * v / total).toFixed(3) + '%';
+    const vistas = (c.vistas || []).map(o => {
+      const [x, y, w, h] = o.caja || [o.x - 8, o.y - 8, 16, 16];
+      const puntaje = o.candidatos?.[0]?.puntaje;
+      const simbolo = o.lexema === '<sin leer>' ? '?' : o.lexema;
+      return `<div class="caja ${CLASE_CAJA[o.clase] || ''}" style="left:${escala(x, ancho)};top:${escala(y, alto)};width:${escala(w, ancho)};height:${escala(h, alto)}"
+        title="${escapar(ROTULO_CAJA[o.clase] || o.clase)}${puntaje != null ? ' · ' + puntaje.toFixed(2) : ''}"><span>${escapar(simbolo)}${puntaje != null ? ' ' + puntaje.toFixed(2) : ''}</span></div>`;
+    }).join('');
+    const tinta = (c.tinta || []).map(([x, y, w, h]) =>
+      `<div class="caja caja-tinta" style="left:${escala(x, ancho)};top:${escala(y, alto)};width:${escala(w, ancho)};height:${escala(h, alto)}" title="contenido detectado que no se pudo convertir en ficha"></div>`).join('');
+    return vistas + tinta;
+  }
+
+  function tarjetaEvidencia(c) {
+    // La imagen se pide por el cuadro exacto del que salen las cajas. Si el servicio no publica
+    // cuadro, no hay imagen ni cajas que mostrar.
+    const sello = c.cuadro;
+    const fuente = sello ? `${base}/api/imagen/${c.id}/limpio?secuencia=${sello}` : '';
+    const cuenta = (c.vistas || []).reduce((m, o) => (m[o.clase] = (m[o.clase] || 0) + 1, m), {});
+    const resumen = Object.entries(cuenta).map(([k, n]) => `${n} ${ROTULO_CAJA[k] || k}`).join(' · ')
+      || 'sin observaciones';
+    return `<div class="evid-cam"><h4>${escapar(c.nombre)} <small>cuadro ${sello ?? '—'}</small></h4>
+      <div class="evid-lienzo">${fuente ? `<img src="${fuente}" alt="Vista de ${escapar(c.nombre)}">` : '<p class="nota">El servicio no publica ningún cuadro de esta cámara.</p>'}${cajasDeCamara(c)}</div>
+      <p class="nota">${escapar(resumen)}${c.tinta?.length ? ' · ' + c.tinta.length + ' sin resolver en ficha' : ''}</p></div>`;
+  }
+
+  function mesaEstimada(fusion) {
+    const piezas = fusion?.piezas || [];
+    if (!piezas.length) return '<div class="evid-mesa"><p class="nota">La fusión no sitúa ninguna ficha todavía.</p></div>';
+    const xs = piezas.map(p => p.posicion[0]), ys = piezas.map(p => p.posicion[1]);
+    const margen = 40;
+    const x0 = Math.min(...xs) - margen, x1 = Math.max(...xs) + margen;
+    const y0 = Math.min(...ys) - margen, y1 = Math.max(...ys) + margen;
+    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+    const puntos = piezas.map(p => {
+      const cx = (100 * (p.posicion[0] - x0) / w).toFixed(2);
+      const cy = (100 * (1 - (p.posicion[1] - y0) / h)).toFixed(2);
+      const firme = p.estado === 'confirmada';
+      const texto = p.lexema === '<sin leer>' ? '?' : p.lexema;
+      return `<div class="mesa-ficha ${firme ? 'firme' : 'provisional'}" style="left:${cx}%;top:${cy}%"
+        title="${escapar(p.id)} · ${escapar(p.estado)} · ${(p.lectores || []).length} vistas"><span>${escapar(texto)}</span></div>`;
+    }).join('');
+    return `<div class="evid-mesa"><h4>Mesa estimada por la fusión <small>${piezas.length} fichas</small></h4>
+      <div class="evid-plano">${puntos}</div>
+      <p class="nota">Solo fichas situadas por la fusión. Relleno sólido: confirmada. Contorno: provisional.</p></div>`;
+  }
+
+  let firmaEvidencia = '';
+  function pintarEvidencia(estado) {
+    const caja = $('evidencia-lectura');
+    if (!caja) return;
+    const firma = JSON.stringify([(estado.camaras || []).map(c => [c.id, c.cuadro, (c.vistas || []).length, (c.tinta || []).length]),
+      (estado.fusion?.piezas || []).map(p => [p.id, p.lexema, p.estado])]);
+    if (firma === firmaEvidencia) return;
+    firmaEvidencia = firma;
+    caja.innerHTML = (estado.camaras || []).map(tarjetaEvidencia).join('') + mesaEstimada(estado.fusion);
+    // Las cajas solo aparecen sobre la imagen de su cuadro ya cargada: si falla la carga, o
+    // todavía no llegó, no se dibuja ninguna.
+    for (const img of caja.querySelectorAll('.evid-lienzo img')) {
+      const lienzo = img.closest('.evid-lienzo');
+      img.addEventListener('load', () => lienzo.classList.add('lista'));
+      img.addEventListener('error', () => { lienzo.classList.remove('lista'); lienzo.classList.add('sin-imagen'); img.remove(); });
+      if (img.complete && img.naturalWidth) lienzo.classList.add('lista');
+    }
+  }
+
   function pintarCatalogo(camaras) {
     const fichas = catalogoCamaras(camaras);
     const previsto = !camaras.length;
@@ -253,11 +336,23 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const principal = config.modo === 'fusion' ? fusion : estado.camaras.find(c => c.id === estado.principal);
     $('lectura-codigo').hidden = !principal?.instrucciones?.length;
     $('lectura-codigo').textContent = (principal?.instrucciones || []).map(i => [i.token, ...i.operandos.map(v => estado.etiquetas?.[v] || v)].join(' ')).join('\n');
-    resultadoLectura(principal);
-    if (puedeAplicarLectura(principal) && $('lectura-aplicar').checked) {
-      const firma = principal.id + principal.firma;
+    // En modo fusión decide el servicio: el mismo Lector que usan las grabaciones de prueba.
+    // La interfaz no vuelve a juzgar la lectura, solo muestra su estado, su versión y su veredicto.
+    const decideServicio = config.modo === 'fusion';
+    const lecturaServicio = estado.lectura;
+    const aplicable = decideServicio ? lecturaServicio?.estado === 'confirmada' : puedeAplicarLectura(principal);
+    // El servicio es la autoridad: su lectura y su veredicto entran tal cual. Si la versión
+    // cambia, deja de estar confirmada o no hay lectura publicada, la ejecución física se
+    // deshabilita de inmediato. «Una sola vista» es un diagnóstico de cámara y nunca la habilita.
+    veredictoFisico?.(decideServicio ? lecturaServicio : null, decideServicio ? estado.veredicto : null,
+      decideServicio ? '' : 'Modo «Una sola vista»: diagnóstico de una cámara, sin autoridad para ejecutar el montaje físico.');
+    resultadoLectura(principal, decideServicio, lecturaServicio, estado.veredicto);
+    if (aplicable && $('lectura-aplicar').checked) {
+      const firma = decideServicio ? 'v' + lecturaServicio.version : principal.id + principal.firma;
       if (firma !== ultimaLectura && recibir(principal.instrucciones, estado.etiquetas)) { ultimaLectura = firma; ultimoAviso = ''; }
-    } else if ($('lectura-aplicar').checked) pausarLectura(principal?.avisos?.join(' ') || 'Esperando una lectura completa y estable.');
+    } else if ($('lectura-aplicar').checked) pausarLectura(
+      (decideServicio ? lecturaServicio?.motivo : principal?.avisos?.join(' ')) || 'Esperando una lectura completa y estable.');
+    if (pagina === 'camaras') pintarEvidencia(estado);
     if (pagina === 'camaras') listaLateral.innerHTML = '<h2>Programa reconstruido</h2>' + (principal?.instrucciones || []).map((i,n) => `<div class="layer"><span class="num">${n+1}</span><span class="sw ${familia(i.token)}"></span><span class="txt">${escapar([i.token,...i.operandos.map(v => estado.etiquetas?.[v] || v)].join(' '))}</span></div>`).join('');
     pintarCalibracion();
   }
@@ -289,8 +384,11 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       pintarCamaras();
     } catch {
       if (solicitud !== solicitudEstado) return;
+      // Sin servicio no hay autoridad: la ejecución física se invalida aunque no se esté
+      // actualizando la mesa.
+      veredictoFisico?.(null, null, 'Se perdió la conexión con el servicio: no hay lectura de cámaras que respalde esta mesa.');
       pausarLectura('Se perdió la conexión con las cámaras. El montaje mostrado es la última lectura.');
-      estado = null; detenerValidacion(); firmaLectura = ''; $('lectura-estado').className = ''; $('servicio-estado').textContent = 'Servicio local desconectado';
+      estado = null; $('lectura-estado').className = ''; $('servicio-estado').textContent = 'Servicio local desconectado';
       for (const tarjeta of raiz.querySelectorAll('[data-control]')) {
         tarjeta.querySelector('.cam-estado').textContent = 'Sin conexión · última imagen recibida';
         for (const boton of tarjeta.querySelectorAll('[data-accion]')) boton.disabled = true;
@@ -334,8 +432,10 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     }
   }
   const ROTULO_VISTA = {asociada: 'la fusión usó esta lectura', contradice: 'propone otro símbolo',
-    ilegible: 'la detecta pero no la lee', sin_deteccion: 'la encuadra y no detecta nada', fuera: 'fuera de encuadre'};
-  const CLASE_VISTA = {asociada: '', contradice: 'errc', ilegible: 'avisoc', sin_deteccion: 'avisoc', fuera: ''};
+    ilegible: 'la detecta pero no la lee', sin_asociar: 'detecta algo que la fusión no pudo situar aquí',
+    sin_deteccion: 'la encuadra y no detecta nada', fuera: 'fuera de encuadre'};
+  const CLASE_VISTA = {asociada: '', contradice: 'errc', ilegible: 'avisoc', sin_asociar: 'avisoc',
+    sin_deteccion: 'avisoc', fuera: ''};
   const PROCEDENCIA = {
     coincidencia_independiente: ['Coincidencia independiente', 'okc', 'Dos o más cámaras la sitúan y la leen igual.'],
     observacion_unica: ['Observación única', 'avisoc', 'Una sola cámara la sostiene; nadie la desmiente, pero nadie la corrobora.'],
@@ -415,12 +515,14 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       const por = c => vistas.filter(v => v.clase === c);
       const asociadas = por('asociada'), contradicen = por('contradice');
       const ilegibles = por('ilegible'), ciegas = por('sin_deteccion'), fuera = por('fuera');
+      const libres = por('sin_asociar');
       const filas = vistas.filter(v => v.clase !== 'fuera').map(v => `<div class="vista-ficha ${CLASE_VISTA[v.clase] || ''}">
           <span class="vf-camara">${escapar(v.nombre)}</span>
           <span class="vf-lee">${ROTULO_VISTA[v.clase] || v.clase}${v.propone ? `: <b class="mono">${escapar(v.propone)}</b>` : ''}${v.candidatos && v.candidatos[0] ? ' · ' + v.candidatos[0].puntaje.toFixed(2) : ''}</span></div>`).join('');
       const partes = [`${p.respaldo ?? asociadas.length} de ${vistas.length} cámaras la respaldan`];
       if (contradicen.length) partes.push(`${contradicen.length} propone${contradicen.length === 1 ? '' : 'n'} otro símbolo`);
       if (ilegibles.length) partes.push(`${ilegibles.length} la detecta${ilegibles.length === 1 ? '' : 'n'} sin poder leerla`);
+      if (libres.length) partes.push(`${libres.length} detecta${libres.length === 1 ? '' : 'n'} algo sin situar ahí`);
       if (ciegas.length) partes.push(`${ciegas.length} la encuadra${ciegas.length === 1 ? '' : 'n'} sin detectar nada`);
       if (fuera.length) partes.push(`${fuera.length} fuera de encuadre`);
       const resumen = partes.join(' · ');
@@ -682,7 +784,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   $('simbolo-probar').onclick = () => actuar(async () => { const r = await api('simbolos/probar', { imagen: await foto() }); $('simbolo-prueba').innerHTML = r.candidatos.map(c => `<div class="simrow"><span class="mono">${escapar(c.nombre || c.lexema)}</span><span>${c.puntaje.toFixed(3)}</span></div>`).join('') || 'Sin trazo reconocible.'; }, 'Similitudes calculadas. No representan probabilidades.');
   async function ciclo() { await actualizar(); timer = setTimeout(ciclo, 250); }
   ciclo();
-  window.addEventListener('pagehide', () => { clearTimeout(timer); cerrarVisor(); cerrarEscena3d(); detenerValidacion(); });
+  window.addEventListener('pagehide', () => { clearTimeout(timer); cerrarVisor(); cerrarEscena3d(); });
   return {
     mostrar(destino) {
       pagina = destino; const activa = !['mesa', 'ejecucion'].includes(destino); raiz.hidden = !activa;

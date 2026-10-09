@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Ejecucion, veredicto, necesitaInterprete, resumenFinal, senalDeCambio } from "./modelo/ejecucion.mjs";
+import { Ejecucion, veredicto, necesitaInterprete, resumenFinal, senalDeCambio, validaElNavegador, veredictoVigente, motivoFisico } from "./modelo/ejecucion.mjs";
 import { Validador } from "./modelo/validacion.mjs";
 import { dibujarEjecucion, dibujarSeguimiento } from "./interfaz/vista-ejecucion.js";
 import { Consola, lineaPeticion, lineasDeResultado, lineaDeNavegacion, lineaDeVeredicto } from "./modelo/consola.mjs";
@@ -11,10 +11,11 @@ import { posicionPosterior, unir, conexionesValidas, pendientesConexiones, orden
 import { separarOperaciones, crearFichaOperacion, crearFichaOperando, prepararBloque, prepararConector, prepararTuerca, prepararCuna, LARGO_CONECTOR, posicionEncaje } from "./escena/piezas.js";
 import { Montaje, OPERACIONES, SIN_LEER, parametroDesdeTexto } from "./modelo/montaje.mjs";
 import { crearEditor } from "./interfaz/editor-parametro.js";
+import { crearEditorCodigo } from "./interfaz/editor-codigo.js";
 
 import { crearVistas } from "./interfaz/vistas.js";
 import { Cadena } from "./fisica/cadena.mjs";
-import { montajeEjemplo } from "./modelo/ejemplos.mjs";
+import { montajeEjemplo, montajeDesdeInstrucciones } from "./modelo/ejemplos.mjs";
 
 const $ = id => document.getElementById(id);
 const ejecucion = new Ejecucion();
@@ -23,6 +24,7 @@ const sonidos = new Sonidos();
 let consolaPintada = 0;
 const LIMITE_PASOS = 2000;
 let pagina = "mesa", origenPrograma = "manual", proxima = null, ultimoVeredicto = null, finAnunciado = false;
+let editorCodigo = null;
 let estadoEjecucion = { pendiente: false, mensaje: "Completa el montaje para ejecutar.", origen: "manual" };
 const validador = new Validador({
   crearMotor: () => new Worker(new URL("./interprete-worker.js", import.meta.url), { type: "module" }),
@@ -38,6 +40,30 @@ const validador = new Validador({
 function invalidarEjecucion(mensaje) {
   if (validador.invalidar() || ejecucion.resultado) { ejecucion.limpiar(); finAnunciado = false; }
   estadoEjecucion = { pendiente: false, mensaje, origen: origenPrograma };
+}
+let veredictoServicio = null, versionServicio = null, motivoServicio = "";
+function fijarVeredictoDelServicio(lectura, veredicto, motivo = "") {
+  // Una respuesta tardía nunca activa una versión vieja: solo entra el veredicto cuya versión
+  // coincide con la lectura confirmada que el servicio publica ahora.
+  const version = lectura?.estado === "confirmada" ? lectura.version : null;
+  const util = veredictoVigente(lectura, veredicto);
+  const razon = motivo || (version ? "" : lectura?.motivo || "");
+  if (version !== versionServicio || util !== veredictoServicio || razon !== motivoServicio) {
+    versionServicio = version; veredictoServicio = util; motivoServicio = razon;
+    if (origenPrograma === "camara") actualizar();
+  }
+}
+function aplicarVeredictoDelServicio() {
+  validador.invalidar();
+  if (!veredictoServicio) {
+    ejecucion.limpiar(); finAnunciado = false;
+    estadoEjecucion = { pendiente: !!versionServicio, mensaje: versionServicio ? "" : motivoServicio, origen: "camara" };
+    return;
+  }
+  if (ejecucion.resultado !== veredictoServicio) {
+    ejecucion.cargar(veredictoServicio); finAnunciado = false;
+  }
+  estadoEjecucion = { pendiente: false, mensaje: "", origen: "camara" };
 }
 function validarPrograma(codigo) {
   const firma = JSON.stringify([codigo, origenPrograma, montaje.bloques.map(b => b.id)]);
@@ -487,11 +513,17 @@ function reconstruirPanel() {
   const hechos = {
     bloques: codigo ? montaje.bloques.length : 0,
     pendientes: [...montaje.pendientes(), ...(origenPrograma === "manual" ? pendientesConexiones(montaje) : [])],
-    incertidumbre: origenPrograma === "camara" ? incertidumbreCamara : "",
+    incertidumbre: origenPrograma === "camara"
+      ? incertidumbreCamara || motivoFisico({ veredicto: veredictoServicio, version: versionServicio, motivo: motivoServicio })
+      : "",
     moviendo: !!(arrastre?.movido || nuevoArrastre?.movido),
     origen: origenPrograma,
   };
-  if (necesitaInterprete(hechos)) validarPrograma(codigo);
+  // Autoridad única: el programa leído de las cámaras lo valida el servicio y su veredicto llega
+  // con la versión del montaje. La página no vuelve a decidir si es válido; solo recorre la traza
+  // que el servicio le entrega. El worker se reserva para programas construidos a mano.
+  if (!validaElNavegador(hechos)) aplicarVeredictoDelServicio();
+  else if (necesitaInterprete(hechos)) validarPrograma(codigo);
   else invalidarEjecucion(veredicto(hechos).detalle);
   const fallo = veredicto({ ...hechos, validando: estadoEjecucion.pendiente, resultado: ejecucion.resultado });
   const resumen = fallo.clase === "valido" ? resumenFinal(ejecucion.resultado, etiquetas) : "";
@@ -502,6 +534,7 @@ function reconstruirPanel() {
   if (senalDeCambio(ultimoVeredicto, fallo)) sonidos.reproducir("error");
   ultimoVeredicto = fallo;
   dibujarSeguimiento(ejecucion, montaje, fallo, etiquetas);
+  editorCodigo?.actualizarPasos(ejecucion);
   dibujarConsola();
 
   const lista = $("lista-programa"); lista.replaceChildren();
@@ -1067,6 +1100,24 @@ const vistas = crearVistas({
     if (!listo || arrastre || nuevoArrastre || $("editor-parametro").open) return false;
     reemplazarProgramaDesdeCamara(instrucciones, etiquetas); return true;
   },
+  veredictoFisico(lectura, veredicto, motivo) { fijarVeredictoDelServicio(lectura, veredicto, motivo); },
+});
+editorCodigo = crearEditorCodigo({
+  codigoMesa: () => montaje.pendientes().length ? null : montaje.programa().map(i => [i.token, ...i.operandos].join(" ")).join("\n"),
+  construir(instrucciones) {
+    if (instrucciones[0]?.token !== "PUSH" || !/^-?\d+(\.\d+)?$/.test(instrucciones[0].operandos[1] || ""))
+      throw new Error("El programa debe comenzar con PUSH, una pila y un valor numérico, por ejemplo PUSH a 3.");
+    if (!listo || arrastre || nuevoArrastre || $("editor-parametro").open)
+      throw new Error("Espera a que la mesa esté lista para construir los bloques.");
+    const nuevo = montajeDesdeInstrucciones(instrucciones);
+    manual(); origenPrograma = "manual"; montajeGuardado = null;
+    montaje = nuevo; fijaciones = []; seleccionado = null; bloqueActivo = null;
+    invalidarEjecucion("Construyendo bloques desde el texto.");
+    cambiarPagina("mesa"); actualizar(); encuadrar();
+    aviso("Programa convertido en bloques. Puedes recorrer su ejecución paso a paso.");
+    return `${instrucciones.length} ${instrucciones.length === 1 ? "bloque construido" : "bloques construidos"} de izquierda a derecha.`;
+  },
+  navegar: accion => $("ej-" + accion).click(),
 });
 $("abrir-camaras").onclick = () => cambiarPagina("camaras");
 $("camara-activa").addEventListener("change", () => { if ($("camara-activa").checked) conectarCamara(); else websocketCamara?.close(); });

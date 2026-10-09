@@ -3,30 +3,20 @@ import unittest
 import numpy as np
 
 from plataforma import malla
-from plataforma.escena_virtual import (CONFIGURACION_PASOS, escenario_de, fuentes, render)
-from plataforma.fusion import Fusion, puede_ejecutar
+from plataforma.escena_virtual import (Mano, cuadro, escenario_de, fuentes, olvidar_vistas,
+                                       render)
+from plataforma.fusion import puede_ejecutar
+from plataforma.recorrido import recorrer as pasar
 from plataforma.guiones import GUIONES
 from plataforma.lectura import leer_cuadro
 from plataforma.geometria_fusion import proyectar
-from plataforma.vocabulario import Vocabulario
 
-RAIZ = __file__.rsplit('/tests/', 1)[0]
-DATOS = RAIZ + '/datos_locales/virtual'
-
-
-def vocabulario():
-    return Vocabulario(RAIZ, DATOS)
+from tests.entorno import vocabulario
 
 
 def recorrer(nombre, voc, pasos=12):
     escena, guion = GUIONES[nombre][0](voc)
-    fusion = Fusion()
-    resultado = None
-    for paso in range(pasos):
-        guion(escena, paso)
-        instante = 10.0 + paso * 0.1
-        marcos, _ = fuentes(escena, voc, instante, paso + 1)
-        resultado = fusion.actualizar(marcos, CONFIGURACION_PASOS, instante)
+    resultado, _ = pasar(escena, guion, voc, pasos)
     return escena, resultado
 
 
@@ -89,7 +79,9 @@ class PixelesDesdeSTLTest(unittest.TestCase):
     def test_el_render_es_determinista(self):
         escena, _ = GUIONES['completa'][0](self.vocabulario)
         for camara in escena.camaras:
-            self.assertTrue((render(escena, camara) == render(escena, camara)).all(), camara.id)
+            primero = render(escena, camara)
+            olvidar_vistas()
+            self.assertTrue((primero == render(escena, camara)).all(), camara.id)
 
 
 class ReconstruccionDesdeSTLTest(unittest.TestCase):
@@ -123,3 +115,54 @@ class ReconstruccionDesdeSTLTest(unittest.TestCase):
         filas = lecturas_por_ficha(self.escena, self.vocabulario)
         flojas = {v['lexema']: len(v['aciertan']) for v in filas.values() if len(v['aciertan']) < 2}
         self.assertEqual(flojas, {}, 'la disposición debe dar redundancia ficha por ficha')
+
+
+class ReutilizacionDeVistasTest(unittest.TestCase):
+    """La imagen rasterizada y su lectura se reutilizan entre capturas. Eso solo es admisible si
+    cualquier cambio de la geometría o de la pose produce otra clave: una caché que sobreviviera
+    a mover una cámara, tapar una ficha o retirarla estaría ocultando justo lo que se mide."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.vocabulario = vocabulario()
+
+    def leer(self, escena, camara, secuencia=1):
+        return cuadro(escena, camara, self.vocabulario, 10.0, secuencia)[1]['observaciones']
+
+    def lexemas(self, observaciones):
+        return sorted((o['lexema'], round(o['x']), round(o['y'])) for o in observaciones)
+
+    def escena(self):
+        escena, _ = GUIONES['completa'][0](self.vocabulario)
+        return escena, escena.camaras[0]
+
+    def test_sin_cambios_la_lectura_reutilizada_es_la_misma(self):
+        escena, camara = self.escena()
+        primera = self.leer(escena, camara, 1)
+        self.assertEqual(self.lexemas(primera), self.lexemas(self.leer(escena, camara, 2)))
+        self.assertTrue(primera, 'la escena base tiene que producir observaciones')
+
+    def test_la_lectura_reutilizada_es_una_copia_y_no_el_original(self):
+        escena, camara = self.escena()
+        primera = self.leer(escena, camara, 1)
+        primera[0]['lexema'] = 'PISOTEADO'
+        self.assertNotIn('PISOTEADO', [o['lexema'] for o in self.leer(escena, camara, 2)])
+
+    def test_mover_la_camara_no_reutiliza_la_lectura_anterior(self):
+        escena, camara = self.escena()
+        antes = self.lexemas(self.leer(escena, camara, 1))
+        camara.centro = camara.centro + [140., 0., 0.]
+        self.assertNotEqual(antes, self.lexemas(self.leer(escena, camara, 2)))
+
+    def test_tapar_una_ficha_no_reutiliza_la_lectura_anterior(self):
+        escena, camara = self.escena()
+        antes = self.lexemas(self.leer(escena, camara, 1))
+        objetivo = next(f for f in escena.fichas if f.lexema == '3')
+        escena.manos = [Mano((objetivo.centro[0], objetivo.centro[1], 0.), 30., 120.)]
+        self.assertNotEqual(antes, self.lexemas(self.leer(escena, camara, 2)))
+
+    def test_retirar_una_ficha_no_reutiliza_la_lectura_anterior(self):
+        escena, camara = self.escena()
+        antes = self.lexemas(self.leer(escena, camara, 1))
+        escena.retirar(next(f for f in escena.fichas if f.lexema == '3').id)
+        self.assertNotEqual(antes, self.lexemas(self.leer(escena, camara, 2)))

@@ -1,4 +1,5 @@
 import base64
+import itertools
 import json
 import re
 import threading
@@ -13,6 +14,7 @@ import clasificador_simbolos as clasif
 
 OPERACIONES = {"PUSH", "MOV", "POP", "DUP", "NEG", "?", "JMP", "CMP", "ADD", "SUB", "MUL", "DIV", "MOD"}
 PRIORIDAD_ORIGEN = ("foto", "sintetico", "render")
+_revisiones = itertools.count(1)
 
 PROGRAMAS = {
     "minimo": "PUSH a 3\nPUSH a 5\nADD a",
@@ -67,6 +69,7 @@ class Vocabulario:
         self.recargar()
 
     def recargar(self):
+        self.revision = next(_revisiones)
         self.base = json.loads((self.raiz / "simbolos.json").read_text())["simbolos"]
         ruta = self.datos / "simbolos.json"
         self.propios = json.loads(ruta.read_text()) if ruta.exists() else []

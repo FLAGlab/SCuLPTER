@@ -2,9 +2,49 @@ package vision
 
 import scala.scalajs.js
 import scala.scalajs.js.annotation._
-import sculpter.{Lexer, Parser, Interpreter}
+import sculpter.{Lexer, Parser, Interpreter, Statement, UnaryStatement, BinaryStatement, Expr, StackExpr, NumberExpr, NilExpr, TokenType}
 
 object PuenteJS {
+  private def operacion(token: TokenType): String = if (token == TokenType.QUESTION) "?" else token.toString
+
+  private def operando(expr: Expr): String = expr match {
+    case StackExpr(nombre) => nombre
+    case NumberExpr(valor) => BigDecimal(valor).bigDecimal.stripTrailingZeros.toPlainString
+    case NilExpr() => "nil"
+  }
+
+  private def mostrar(expr: Expr, sangria: String): String = expr match {
+    case StackExpr(nombre) => s"${sangria}Stack: $nombre"
+    case NumberExpr(valor) => s"${sangria}Number: $valor"
+    case NilExpr() => s"${sangria}Nil"
+  }
+
+  private def mostrar(stmt: Statement): String = stmt match {
+    case UnaryStatement(op, valor) => s"  UnaryStatement: $op\n" + mostrar(valor, "    ")
+    case BinaryStatement(op, a, b) => s"  BinaryStatement: $op\n" + mostrar(a, "    ") + "\n" + mostrar(b, "    ")
+  }
+
+  @JSExportTopLevel("sculptAnalizar")
+  def analizar(codigoFuente: String): js.Any = {
+    Lexer(codigoFuente)
+    val lexemas = js.Array[js.Any](Lexer.tokens.map(t => js.Dynamic.literal(
+      linea = t.line, tipo = t.tokenType.toString, texto = t.lexeme,
+      literal = if (t.literal == null) "" else t.literal.toString
+    ))*)
+    if (Lexer.hadError) return js.Dynamic.literal(valido = false, etapa = "lexer",
+      mensaje = "Hay un símbolo que el lenguaje no reconoce.", lexemas = lexemas)
+    val programa = Parser(Lexer.tokens)
+    if (Lexer.hadError) return js.Dynamic.literal(valido = false, etapa = "parser",
+      mensaje = "Revisa la operación y sus parámetros.", lexemas = lexemas)
+    val instrucciones = js.Array[js.Any](programa.statements.map {
+      case UnaryStatement(op, valor) => js.Dynamic.literal(token = operacion(op), operandos = js.Array(operando(valor)))
+      case BinaryStatement(op, a, b) => js.Dynamic.literal(token = operacion(op), operandos = js.Array(operando(a), operando(b)))
+    }*)
+    js.Dynamic.literal(valido = true, etapa = "ok", lexemas = lexemas,
+      arbol = "Program" + (if (programa.statements.isEmpty) "" else "\n" + programa.statements.map(mostrar).mkString("\n")),
+      instrucciones = instrucciones)
+  }
+
   @JSExportTopLevel("sculptEjecutar")
   def ejecutar(codigoFuente: String, maxPasos: Int = 2000): js.Any = {
     Lexer(codigoFuente)

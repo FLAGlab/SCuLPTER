@@ -8,14 +8,8 @@ from plataforma.fusion import Fusion, puede_ejecutar
 from plataforma.geometria_fusion import modelo, proyectar
 from plataforma.guiones import GUIONES, completa
 from clasificador_simbolos import MARGEN, SIN_LEER, UMBRAL
-from plataforma.vocabulario import Vocabulario
 
-RAIZ = __file__.rsplit('/tests/', 1)[0]
-DATOS = RAIZ + '/datos_locales/virtual'
-
-
-def vocabulario():
-    return Vocabulario(RAIZ, DATOS)
+from tests.entorno import vocabulario
 
 
 def observaciones_cerca(marco, camara, punto, radio=40.0):

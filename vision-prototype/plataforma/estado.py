@@ -7,11 +7,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 from reconstruir import instrucciones
-from plataforma.lectura import leer_cuadro
+from plataforma.lectura import leer
 from reconstruir import reducir_resolucion
 from plataforma.dispositivos import Camara, capacidades
 from plataforma.calibracion import Calibracion
-from plataforma.fusion import Fusion, CONFIGURACION
+from plataforma.fusion import CONFIGURACION
+from plataforma.lector import Lector
 from plataforma.vocabulario import Vocabulario, OPERACIONES
 
 
@@ -25,8 +26,8 @@ class Estado:
         self.config = json.loads(ruta.read_text()) if ruta.exists() else {'camaras': [], 'principal': None, 'intrinsecos': {}, 'poses': {}}
         self.camaras = {c['id']: Camara(c, self.procesar) for c in self.config['camaras']}
         self.sesiones = {}
-        self.fusion = Fusion()
         self.config.setdefault("fusion", dict(CONFIGURACION))
+        self.lector = Lector(self.vocabulario, self.config["fusion"])
         self.stop_fusion = threading.Event()
         self.hilo_fusion = threading.Thread(target=self._fusionar, daemon=True)
         self.hilo_fusion.start()
@@ -42,9 +43,10 @@ class Estado:
                             fuentes.append({'id': id, 'nombre': camara.config['nombre'], 'estado': camara.estado,
                                             'historial': list(camara.historial), 'intrinsecos': self.config['intrinsecos'].get(id),
                                             'pose': self.config['poses'].get(id)})
-                    self.fusion.actualizar(fuentes, self.config['fusion'], time.monotonic())
-            except Exception:
-                self.fusion.fallar()
+                    self.lector.config = self.config['fusion']
+                    self.lector.actualizar(fuentes, time.monotonic())
+            except Exception as error:
+                self.lector.fallar(f'No se pudo completar el ciclo de lectura: {error}'[:200])
 
     def guardar(self):
         self.datos.mkdir(parents=True, exist_ok=True)
@@ -56,7 +58,10 @@ class Estado:
         with camara.lock:
             if camara.cuadro is not None and cuadro.instante <= camara.cuadro.instante:
                 return
-        imagen, lecturas = leer_cuadro(cuadro.color, self.vocabulario) if camara.config['rol'] != 'profundidad' else (reducir_resolucion(cuadro.color), [])
+        if camara.config['rol'] != 'profundidad':
+            imagen, lecturas, tinta = leer(cuadro.color, self.vocabulario)
+        else:
+            imagen, lecturas, tinta = reducir_resolucion(cuadro.color), [], []
         observaciones = [lectura['observacion'] for lectura in lecturas]
         detecciones = [(lectura['token'], lectura['x'], lectura['y']) for lectura in lecturas]
         vista = imagen.copy()
@@ -92,17 +97,26 @@ class Estado:
             camara.estado, camara.error = 'conectada', ''
             camara.observaciones = observaciones
             camara.jpeg = cv2.imencode('.jpg', vista, [cv2.IMWRITE_JPEG_QUALITY, 75])[1].tobytes()
+            camara.jpeg_limpio = cv2.imencode('.jpg', imagen, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+            camara.jpeg_secuencia = camara.secuencia
+            camara.tinta = tinta
+            camara.limpios[camara.secuencia] = camara.jpeg_limpio
+            while len(camara.limpios) > camara.historial.maxlen:
+                camara.limpios.popitem(last=False)
             if cuadro.profundidad is not None:
                 valido = np.isfinite(cuadro.profundidad) & (cuadro.profundidad > 0)
                 mapa = np.clip(np.nan_to_num(cuadro.profundidad, nan=0, posinf=0) / 3000 * 255, 0, 255).astype(np.uint8)
                 color = cv2.applyColorMap(mapa, cv2.COLORMAP_TURBO)
                 color[~valido] = 0
                 camara.jpeg_depth = cv2.imencode('.jpg', color)[1].tobytes()
-            camara.historial.append({'secuencia': camara.secuencia, 'instante': cuadro.instante, 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'observaciones': observaciones, 'profundidad': cuadro.profundidad, 'intrinsecos': cuadro.intrinsecos})
+            camara.historial.append({'secuencia': camara.secuencia, 'instante': cuadro.instante, 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'observaciones': observaciones, 'tinta': tinta, 'profundidad': cuadro.profundidad, 'intrinsecos': cuadro.intrinsecos})
             camara.datos = {'firma': firma, 'ambito': 'camara', 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'estable': estable, 'instrucciones': candidato, 'profundidad': cuadro.profundidad is not None, 'avisos': avisos, 'compatible': not avisos}
 
     def resumen(self):
         with self.lock:
+            fusionado = self.lector.fusion.resumen()
+            vistas = fusionado.get('vistas_camara') or {}
+            cuadros = fusionado.get('cuadro_camara') or {}
             dispositivos = []
             for camara in self.camaras.values():
                 item = camara.resumen()
@@ -113,10 +127,22 @@ class Estado:
                 item['intrinsecos'] = intr
                 item['pose'] = self.config['poses'].get(item['id'])
                 item['capturas'] = len(self.sesiones[item['id']].muestras) if item['id'] in self.sesiones else 0
+                # Paquete de evidencia de un solo cuadro: la imagen que se publica, las cajas
+                # que la fusión usó y la resolución en la que están esas cajas salen todas del
+                # cuadro que la fusión acaba de leer, aunque la cámara ya haya capturado otro.
+                sello = cuadros.get(item['id'])
+                with camara.lock:
+                    entrada = next((h for h in camara.historial if h['secuencia'] == sello), None)
+                    tiene_imagen = sello in camara.limpios
+                item['cuadro'] = sello if entrada is not None and tiene_imagen else None
+                item['vistas'] = list(vistas.get(item['id'], [])) if item['cuadro'] else []
+                item['tinta'] = list(entrada['tinta']) if item['cuadro'] else []
+                item['resolucion_vistas'] = list(entrada['resolucion']) if item['cuadro'] else None
                 dispositivos.append(item)
             with self.vocabulario.lock:
                 etiquetas = {s['lexema']: s['nombre'] for s in self.vocabulario.listar() if s['tipo'] == 'pila' and s['lexema'].startswith('sculpt_label_')}
-            return {'sesion': self.sesion, 'camaras': dispositivos, 'principal': self.config['principal'], 'adaptadores': capacidades(), 'etiquetas': etiquetas, 'configuracion_fusion': dict(self.config['fusion']), 'fusion': self.fusion.resumen()}
+            return {'sesion': self.sesion, 'camaras': dispositivos, 'principal': self.config['principal'], 'adaptadores': capacidades(), 'etiquetas': etiquetas, 'configuracion_fusion': dict(self.config['fusion']), 'fusion': fusionado,
+                    **self.lector.estado()}
 
     def cuadro(self, id):
         camara = self.camaras[id]
@@ -125,43 +151,105 @@ class Estado:
                 raise ValueError('Conecta la cámara y espera una imagen reciente.')
             return camara.cuadro
 
+    def _agregar(self, datos):
+        """Valida un dispositivo nuevo y lo deja creado y en la configuración, sin abrirlo.
+
+        Rechaza tipo desconocido, webcam sin índice numérico, duplicado de tipo y fuente, y rol
+        que el dispositivo no puede cumplir. Devuelve la configuración del dispositivo creado.
+        """
+        tipo = datos.get('tipo')
+        if tipo not in {'webcam', 'realsense', 'kinect'}:
+            raise ValueError('Selecciona webcam, RealSense o Kinect v2. Identifica primero el modelo de Kinect.')
+        fuente = str(datos.get('fuente', '')).strip()
+        if tipo == 'webcam' and not fuente.isdigit():
+            raise ValueError('La webcam necesita un índice: 0, 1, 2…')
+        if any(c.config['tipo'] == tipo and c.config['fuente'] == fuente for c in self.camaras.values()):
+            raise ValueError('Ese dispositivo ya está agregado.')
+        nombre = str(datos.get('nombre', '')).strip()[:80] or tipo
+        rol = datos.get('rol', 'simbolos')
+        if rol not in {'simbolos', 'profundidad', 'ambos'} or (tipo == 'webcam' and rol != 'simbolos'):
+            raise ValueError('Una webcam aporta símbolos; la profundidad requiere un sensor RGB-D.')
+        config = {'id': uuid.uuid4().hex[:12], 'tipo': tipo, 'fuente': fuente, 'nombre': nombre, 'rol': rol}
+        self.camaras[config['id']] = Camara(config, self.procesar)
+        self.config['camaras'].append(config)
+        return config
+
+    def _area_declarada(self, datos):
+        """Área de trabajo que piden estos datos: los cuatro límites si vienen, `None` si se
+        retira a propósito, y la vigente si no se menciona. Es un dato de la instalación."""
+        area = self.config['fusion'].get('area_trabajo')
+        if any(datos.get(k) not in (None, '') for k in ('x_min', 'x_max', 'y_min', 'y_max')):
+            try:
+                limites = {k: float(datos[k]) for k in ('x_min', 'x_max', 'y_min', 'y_max')}
+            except (KeyError, TypeError, ValueError):
+                raise ValueError('El área de trabajo necesita los cuatro límites en mm.')
+            if limites['x_min'] >= limites['x_max'] or limites['y_min'] >= limites['y_max']:
+                raise ValueError('El área de trabajo está invertida o es vacía.')
+            return limites
+        if datos.get('area_trabajo') == 'ninguna':
+            return None
+        return area
+
+    def _configurar_fusion(self, datos):
+        """Guarda modo, pasos y área de trabajo, y reinicia la lectura con esa configuración.
+
+        Los dos pasos son dos medidas, una por tamaño de bloque, y deben diferir al menos 2 mm:
+        si toda la cadena usa el mismo bloque, el segundo se deja vacío.
+        """
+        modo = datos.get('modo', 'fusion')
+        paso = float(datos.get('paso_mm', self.config['fusion']['paso_mm']))
+        bruto = datos.get('paso_2_mm', self.config['fusion'].get('paso_2_mm'))
+        paso2 = float(bruto) if bruto not in (None, '') else None
+        if modo not in {'fusion', 'individual'} or not np.isfinite(paso) or not 20 <= paso <= 300:
+            raise ValueError('Elige un modo válido y un paso de 20 a 300 mm.')
+        if paso2 is not None and (not np.isfinite(paso2) or not 20 <= paso2 <= 300):
+            raise ValueError('El segundo paso debe ir de 20 a 300 mm.')
+        if paso2 is not None and abs(paso2 - paso) < 2:
+            raise ValueError('Los dos pasos son casi iguales. Deja vacío el segundo si toda la cadena usa el mismo bloque.')
+        area = self._area_declarada(datos)
+        self.config['fusion'] = {'modo': modo, 'paso_mm': paso, 'paso_2_mm': paso2, 'medido': True,
+                                 'plano_min_mm': self.config['fusion'].get('plano_min_mm'),
+                                 'plano_max_mm': self.config['fusion'].get('plano_max_mm'),
+                                 'area_trabajo': area}
+        self.lector.reiniciar(self.config['fusion'])
+
+    def _poses_comunes(self, datos):
+        """Pose de cada cámara conectada contra el mismo tablero inmóvil, en un solo marco.
+
+        Exige dos cámaras o más, imágenes separadas menos de 0.5 s, intrínsecos en cada una y
+        error de reproyección menor que 1 px. No escribe nada: devuelve las poses o levanta.
+        """
+        tablero = Calibracion(int(datos['columnas']), int(datos['filas']), float(datos['mm']))
+        activos = [c for c in self.camaras.values() if c.estado == 'conectada']
+        if len(activos) < 2:
+            raise ValueError('Conecta al menos dos cámaras y muestra el mismo tablero inmóvil a todas.')
+        cuadros = {c.config['id']: self.cuadro(c.config['id']) for c in activos}
+        tiempos = [c.instante for c in cuadros.values()]
+        if max(tiempos)-min(tiempos) > .5:
+            raise ValueError('Las imágenes están demasiado separadas en el tiempo. Intenta de nuevo.')
+        poses = {}
+        for cid, cuadro in cuadros.items():
+            intr = self.config['intrinsecos'].get(cid) or cuadro.intrinsecos
+            if not intr:
+                raise ValueError('Cada cámara necesita intrínsecos antes del registro conjunto.')
+            pose = tablero.pose(cuadro.color, intr)
+            if pose['rms'] >= 1:
+                raise ValueError('El tablero tiene un error de reproyección igual o mayor a 1 px.')
+            poses[cid] = {**pose, 'tablero': list(tablero.tablero), 'mm': tablero.mm}
+        return poses
+
     def accion(self, accion, datos):
         with self.lock:
             if accion == 'agregar':
-                tipo = datos.get('tipo')
-                if tipo not in {'webcam', 'realsense', 'kinect'}:
-                    raise ValueError('Selecciona webcam, RealSense o Kinect v2. Identifica primero el modelo de Kinect.')
-                fuente = str(datos.get('fuente', '')).strip()
-                if tipo == 'webcam' and not fuente.isdigit():
-                    raise ValueError('La webcam necesita un índice: 0, 1, 2…')
-                if any(c.config['tipo'] == tipo and c.config['fuente'] == fuente for c in self.camaras.values()):
-                    raise ValueError('Ese dispositivo ya está agregado.')
-                nombre = str(datos.get('nombre', '')).strip()[:80] or tipo
-                rol = datos.get('rol', 'simbolos')
-                if rol not in {'simbolos', 'profundidad', 'ambos'} or (tipo == 'webcam' and rol != 'simbolos'):
-                    raise ValueError('Una webcam aporta símbolos; la profundidad requiere un sensor RGB-D.')
-                config = {'id': uuid.uuid4().hex[:12], 'tipo': tipo, 'fuente': fuente, 'nombre': nombre, 'rol': rol}
-                self.camaras[config['id']] = Camara(config, self.procesar)
-                self.config['camaras'].append(config)
+                config = self._agregar(datos)
                 self.guardar()
                 return config
             if accion == 'configurar_fusion':
-                modo = datos.get('modo', 'fusion')
-                paso = float(datos.get('paso_mm', self.config['fusion']['paso_mm']))
-                bruto = datos.get('paso_2_mm', self.config['fusion'].get('paso_2_mm'))
-                paso2 = float(bruto) if bruto not in (None, '') else None
-                if modo not in {'fusion', 'individual'} or not np.isfinite(paso) or not 20 <= paso <= 300:
-                    raise ValueError('Elige un modo válido y un paso de 20 a 300 mm.')
-                if paso2 is not None and (not np.isfinite(paso2) or not 20 <= paso2 <= 300):
-                    raise ValueError('El segundo paso debe ir de 20 a 300 mm.')
-                if paso2 is not None and abs(paso2 - paso) < 2:
-                    raise ValueError('Los dos pasos son casi iguales. Deja vacío el segundo si toda la cadena usa el mismo bloque.')
-                self.config['fusion'] = {'modo': modo, 'paso_mm': paso, 'paso_2_mm': paso2, 'medido': True}
-                self.fusion.reiniciar()
+                self._configurar_fusion(datos)
                 self.guardar()
                 return self.resumen()
             if accion == 'reiniciar_fusion':
-                self.fusion.reiniciar()
+                self.lector.reiniciar()
                 for c in self.camaras.values():
                     with c.lock:
                         c.historial.clear()
@@ -203,27 +291,10 @@ class Estado:
                     raise ValueError('Error de reproyección igual o mayor a 1 px. Repite las capturas con más variedad y enfoque.')
                 self.config['intrinsecos'][id] = intr
                 self.config['poses'] = {}
-                self.fusion.reiniciar()
+                self.lector.reiniciar()
             elif accion == 'registrar':
-                tablero = Calibracion(int(datos['columnas']), int(datos['filas']), float(datos['mm']))
-                activos = [c for c in self.camaras.values() if c.estado == 'conectada']
-                if len(activos) < 2:
-                    raise ValueError('Conecta al menos dos cámaras y muestra el mismo tablero inmóvil a todas.')
-                cuadros = {c.config['id']: self.cuadro(c.config['id']) for c in activos}
-                tiempos = [c.instante for c in cuadros.values()]
-                if max(tiempos)-min(tiempos) > .5:
-                    raise ValueError('Las imágenes están demasiado separadas en el tiempo. Intenta de nuevo.')
-                poses = {}
-                for cid, cuadro in cuadros.items():
-                    intr = self.config['intrinsecos'].get(cid) or cuadro.intrinsecos
-                    if not intr:
-                        raise ValueError('Cada cámara necesita intrínsecos antes del registro conjunto.')
-                    pose = tablero.pose(cuadro.color, intr)
-                    if pose['rms'] >= 1:
-                        raise ValueError('El tablero tiene un error de reproyección igual o mayor a 1 px.')
-                    poses[cid] = {**pose, 'tablero': list(tablero.tablero), 'mm': tablero.mm}
-                self.config['poses'] = poses
-                self.fusion.reiniciar()
+                self.config['poses'] = self._poses_comunes(datos)
+                self.lector.reiniciar()
             else:
                 raise ValueError('Acción desconocida.')
             self.guardar()

@@ -2,7 +2,7 @@ import importlib.util
 import threading
 import time
 from dataclasses import dataclass
-from collections import deque
+from collections import OrderedDict, deque
 
 import cv2
 import numpy as np
@@ -41,6 +41,63 @@ class Webcam:
 
     def cerrar(self):
         self.cap.release()
+
+
+class Grabacion:
+    """Reproduce una grabación real (vídeo o carpeta de imágenes) por la misma tubería que una
+    webcam. Es la vía para demostrar el ciclo con imágenes de cámaras de verdad sin tenerlas
+    conectadas: la fuente es un archivo, el resto del camino es idéntico."""
+
+    def __init__(self, fuente, fps=None, bucle=False):
+        import glob
+        import os
+        self.ruta = str(fuente)
+        self.bucle = bool(bucle)
+        self.imagenes, self.cap, self.indice = [], None, 0
+        if os.path.isdir(self.ruta):
+            patrones = ('*.png', '*.jpg', '*.jpeg', '*.PNG', '*.JPG')
+            self.imagenes = sorted(f for patron in patrones
+                                   for f in glob.glob(os.path.join(self.ruta, patron)))
+            if not self.imagenes:
+                raise ValueError(f'No hay imágenes en {self.ruta}.')
+            self.fps = float(fps or 10.0)
+        else:
+            if not os.path.isfile(self.ruta):
+                raise ValueError(f'No existe la grabación {self.ruta}.')
+            self.cap = cv2.VideoCapture(self.ruta)
+            if not self.cap.isOpened():
+                self.cap.release()
+                raise ValueError(f'No se pudo abrir la grabación {self.ruta}.')
+            leido = self.cap.get(cv2.CAP_PROP_FPS)
+            self.fps = float(fps or (leido if leido and leido > 0 else 10.0))
+        self.cuantos = len(self.imagenes) or int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+    def leer(self):
+        if self.imagenes:
+            if self.indice >= len(self.imagenes):
+                if not self.bucle:
+                    raise EOFError('La grabación terminó.')
+                self.indice = 0
+            color = cv2.imread(self.imagenes[self.indice])
+            if color is None:
+                raise RuntimeError(f'No se pudo leer {self.imagenes[self.indice]}.')
+        else:
+            ok, color = self.cap.read()
+            if not ok:
+                if not self.bucle:
+                    raise EOFError('La grabación terminó.')
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                self.indice = 0
+                ok, color = self.cap.read()
+                if not ok:
+                    raise RuntimeError('La grabación no se pudo rebobinar.')
+        instante = self.indice / self.fps
+        self.indice += 1
+        return Cuadro(color, instante)
+
+    def cerrar(self):
+        if self.cap is not None:
+            self.cap.release()
 
 
 class RealSense:
@@ -122,6 +179,7 @@ class Camara:
         self.jpeg_depth = None
         self.datos = {}
         self.historial = deque(maxlen=6)
+        self.limpios = OrderedDict()
 
     def iniciar(self):
         if self.hilo and self.hilo.is_alive():
@@ -130,6 +188,7 @@ class Camara:
         with self.lock:
             self.datos = {}
             self.historial.clear()
+            self.limpios.clear()
             self.cuadro = None
             self.jpeg = None
             self.jpeg_depth = None

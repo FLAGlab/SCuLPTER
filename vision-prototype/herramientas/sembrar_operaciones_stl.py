@@ -2,14 +2,13 @@ import argparse
 import json
 import os
 import sys
-import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cv2
 import numpy as np
 
-from herramientas.sembrar_vocabulario_virtual import recortar_como_detector
+from herramientas.sembrar_vocabulario_virtual import nombre_referencia, recortar_como_detector
 from plataforma import malla
 from plataforma.escena_virtual import COLOR_GRABADO, COLOR_MESA, COLOR_OPERACION, Camara, _colocar
 from plataforma.rasterizador import Escenario
@@ -46,7 +45,7 @@ def sembrar(datos, tokens):
     for token in tokens:
         if any(e['lexema'] == token and e.get('origen') == 'render' for e in propios):
             continue
-        archivo = 'ref_' + uuid.uuid4().hex + '.png'
+        archivo = nombre_referencia('operacion', token)
         if not cv2.imwrite(os.path.join(carpeta, archivo), rendir(token)):
             raise ValueError(f'No se pudo escribir la referencia de {token}.')
         entrada = {'lexema': token, 'nombre': token, 'tipo': 'operacion', 'foto': archivo,

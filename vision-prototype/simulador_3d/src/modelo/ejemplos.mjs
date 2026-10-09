@@ -1,4 +1,4 @@
-import { Montaje, parametroDesdeTexto } from './montaje.mjs';
+import { Montaje, OPERACIONES, parametroDesdeTexto } from './montaje.mjs';
 import { ordenarMontaje, unirArticulado } from './conexiones.mjs';
 
 export const TRAZOS = {
@@ -51,23 +51,33 @@ export const EJEMPLOS = [
   },
 ];
 
-export function montajeEjemplo(ejemplo) {
+export function montajeDesdeInstrucciones(instrucciones, { dibujos = {}, giros = [] } = {}) {
   const montaje = new Montaje();
-  for (const linea of ejemplo.codigo.split('\n')) {
-    const [token, ...operandos] = linea.split(' ');
+  for (const { token, operandos } of instrucciones) {
+    const rango = OPERACIONES[token];
+    if (!rango || !Array.isArray(operandos) || operandos.length < rango[0] || operandos.length > rango[1])
+      throw new Error(`Instrucción incompatible: ${token}.`);
     const b = montaje.agregarBloque(token, operandos.length);
     operandos.forEach((texto, slot) => {
       const contenido = parametroDesdeTexto(texto);
-      const trazos = TRAZOS[ejemplo.dibujos?.[texto]];
+      const trazos = TRAZOS[dibujos[texto]];
       if (trazos && contenido.tipo === 'etiqueta') contenido.trazos = structuredClone(trazos);
       const p = montaje.agregarParametro(contenido);
       montaje.acoplar(p.id, b.id, slot);
     });
   }
   ordenarMontaje(montaje);
-  if (ejemplo.giros) {
+  if (giros.length) {
     montaje.conexiones = [];
-    for (let i = 1; i < montaje.bloques.length; i++) unirArticulado(montaje, montaje.bloques[i - 1], montaje.bloques[i], ejemplo.giros[i] * Math.PI / 180);
+    for (let i = 1; i < montaje.bloques.length; i++) unirArticulado(montaje, montaje.bloques[i - 1], montaje.bloques[i], giros[i] * Math.PI / 180);
   }
   return montaje;
+}
+
+export function montajeEjemplo(ejemplo) {
+  const instrucciones = ejemplo.codigo.split('\n').map(linea => {
+    const [token, ...operandos] = linea.split(' ');
+    return { token, operandos };
+  });
+  return montajeDesdeInstrucciones(instrucciones, ejemplo);
 }

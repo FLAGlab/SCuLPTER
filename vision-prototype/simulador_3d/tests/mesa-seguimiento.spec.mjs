@@ -190,3 +190,53 @@ test('la mesa sigue la ejecución y distingue válido, incompleto e inválido', 
 
   assert.deepEqual(fallos, []);
 });
+
+test('el editor convierte texto válido en bloques y conserva la mesa ante errores', async t => {
+  const servidor = await servir();
+  const base = `http://127.0.0.1:${servidor.address().port}/index.html`;
+  const navegador = await chromium.launch();
+  const pagina = await navegador.newPage({ viewport: { width: 1440, height: 900 } });
+  const fallos = [];
+  pagina.on('pageerror', e => fallos.push(e.message));
+  t.after(async () => { await navegador.close(); servidor.close(); });
+
+  await pagina.goto(base, { waitUntil: 'load' });
+  await pagina.locator('#editor-codigo-texto').fill('// inicio\n\nPUSH a 3\n');
+  await pagina.click('#editor-lex');
+  await pagina.waitForFunction(() => document.getElementById('editor-lexemas').textContent.includes('PUSH "PUSH"'));
+  await pagina.click('#editor-parse');
+  await pagina.waitForFunction(() => document.getElementById('editor-arbol').textContent.includes('BinaryStatement: PUSH'));
+  await pagina.click('#editor-construir');
+  await pagina.waitForFunction(() => document.querySelector('#resultado .t1')?.textContent === 'Programa válido');
+  assert.equal(await pagina.locator('#codigo-generado').textContent(), 'PUSH a 3');
+  assert.equal(await pagina.locator('#lista-programa .layer').count(), 1);
+  await pagina.screenshot({ path: new URL(CAPTURAS + 'editor-codigo.png', import.meta.url).pathname });
+  await pagina.click('#editor-siguiente');
+  assert.deepEqual((await leer(pagina)).pilas, ['a[3]']);
+  await pagina.click('#editor-atras');
+  assert.deepEqual((await leer(pagina)).pilas, []);
+
+  await pagina.locator('#editor-codigo-texto').fill('PUSH a');
+  await pagina.click('#editor-construir');
+  await pagina.waitForFunction(() => document.getElementById('editor-codigo-estado').textContent.includes('Revisa'));
+  assert.equal(await pagina.locator('#codigo-generado').textContent(), 'PUSH a 3');
+  await pagina.locator('#editor-codigo-texto').fill('POP a');
+  await pagina.click('#editor-construir');
+  await pagina.waitForFunction(() => document.getElementById('editor-codigo-estado').textContent.includes('debe comenzar'));
+  assert.equal(await pagina.locator('#codigo-generado').textContent(), 'PUSH a 3');
+
+  await pagina.click('#editor-desde-mesa');
+  assert.equal(await pagina.locator('#editor-codigo-texto').inputValue(), 'PUSH a 3');
+  await pagina.click('#editor-limpiar');
+  assert.equal(await pagina.locator('#editor-codigo-texto').inputValue(), '');
+  assert.equal(await pagina.locator('#codigo-generado').textContent(), 'PUSH a 3');
+
+  await pagina.locator('#editor-codigo-texto').fill('PUSH a 1\nJMP 2\nPUSH a 99\nPUSH a 2');
+  await pagina.click('#editor-construir');
+  await pagina.waitForFunction(() => document.querySelector('#resultado .t1')?.textContent === 'Programa válido'
+    && document.getElementById('codigo-generado').textContent.includes('JMP 2'));
+  assert.equal(await pagina.locator('#lista-programa .layer').count(), 4);
+  await pagina.click('#editor-todo');
+  assert.deepEqual((await leer(pagina)).pilas, ['a[1, 2]']);
+  assert.deepEqual(fallos, []);
+});

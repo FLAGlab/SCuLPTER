@@ -163,6 +163,26 @@ button { cursor: pointer; }
   line-height: 20px;
   white-space: pre-wrap;
 }
+#sec-editor-codigo .editor-etiqueta { display: block; margin-bottom: 6px; font-weight: 600; }
+#editor-codigo-texto {
+  display: block; width: 100%; min-height: 180px; resize: vertical;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 5px;
+  background: var(--field); color: var(--text); font: 12px/1.55 var(--mono);
+  tab-size: 2; white-space: pre; overflow: auto;
+}
+#editor-codigo-texto:focus { outline: 2px solid var(--sel); outline-offset: 1px; }
+.editor-acciones { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.editor-acciones .accion { height: 29px; padding: 0 9px; }
+.editor-acciones .accion:disabled { opacity: .5; cursor: default; }
+.editor-enlace { padding: 0; margin-top: 10px; border: 0; background: none; color: var(--sel); text-align: left; }
+.editor-salida { margin-top: 10px; }
+.editor-salida summary { cursor: pointer; font-weight: 600; }
+.editor-salida pre {
+  max-height: 170px; margin: 7px 0 0; padding: 9px; overflow: auto;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--field);
+  font: 11px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.editor-pasos-titulo { margin-top: 16px; margin-bottom: 0; }
 .acciones-ficha { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .acciones-ficha .accion { height: 28px; padding: 0 12px; border-radius: 5px; }
 #alias { margin-top: 8px; color: var(--text-2); white-space: pre-wrap; }
