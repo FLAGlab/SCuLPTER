@@ -158,6 +158,26 @@ class PlataformaTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.estado.accion('registrar', datos)
 
+    def test_registro_con_una_realsense_rgbd(self):
+        id = self.estado.accion('agregar', {'tipo': 'realsense', 'fuente': '944622074682',
+                                            'nombre': 'RealSense', 'rol': 'ambos'})['id']
+        imagen = np.zeros((480, 640, 3), np.uint8)
+        intr = {'camera_matrix': [[700, 0, 320], [0, 700, 240], [0, 0, 1]],
+                'dist_coeffs': [0] * 5, 'image_size': [640, 480]}
+        camara = self.estado.camaras[id]
+        camara.estado = 'conectada'
+        camara.cuadro = Cuadro(imagen, time.monotonic(),
+                               profundidad=np.full((480, 640), 500, np.uint16), intrinsecos=intr)
+        datos = {'id': id, 'columnas': 9, 'filas': 6, 'mm': 25}
+        pose = {'rot': np.eye(3).tolist(), 'tras': [0, 0, 500], 'rms': .1}
+        with patch.object(Calibracion, 'pose', return_value=pose):
+            self.estado.accion('registrar', datos)
+        self.assertEqual(set(self.estado.config['poses']), {id})
+        camara.cuadro.profundidad = None
+        with self.assertRaisesRegex(ValueError, 'necesita profundidad'):
+            self.estado.accion('registrar', datos)
+        self.assertEqual(set(self.estado.config['poses']), {id})
+
     def test_filas_incompatibles_no_se_recortan_para_ejecutar(self):
         id = self.agregar()
         imagen = np.full((80, 80, 3), 255, np.uint8)

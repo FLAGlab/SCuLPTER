@@ -7,12 +7,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 from reconstruir import instrucciones
-from plataforma.lectura import leer
+from plataforma.lectura import leer_detallado
 from reconstruir import reducir_resolucion
 from plataforma.dispositivos import Camara, capacidades
 from plataforma.calibracion import Calibracion
 from plataforma.fusion import CONFIGURACION
 from plataforma.lector import Lector
+from plataforma.sesiones import Dataset
 from plataforma.vocabulario import Vocabulario, OPERACIONES
 
 
@@ -26,11 +27,49 @@ class Estado:
         self.config = json.loads(ruta.read_text()) if ruta.exists() else {'camaras': [], 'principal': None, 'intrinsecos': {}, 'poses': {}}
         self.camaras = {c['id']: Camara(c, self.procesar) for c in self.config['camaras']}
         self.sesiones = {}
+        self.mesas = {}
+        self.motivos_mesa = {}
+        self.dataset = Dataset(self.datos / 'dataset')
+        for camara in self.camaras.values():
+            self._cargar_mesa(camara)
         self.config.setdefault("fusion", dict(CONFIGURACION))
         self.lector = Lector(self.vocabulario, self.config["fusion"])
         self.stop_fusion = threading.Event()
         self.hilo_fusion = threading.Thread(target=self._fusionar, daemon=True)
         self.hilo_fusion.start()
+
+    def _cargar_mesa(self, camara):
+        """Asocia a la cámara la referencia de mesa de la sesión activa, por tipo y fuente."""
+        id = camara.config['id']
+        self.mesas.pop(id, None)
+        sesion = self.dataset.activa()
+        if sesion is None:
+            self.motivos_mesa[id] = 'no hay sesión activa'
+            return
+        try:
+            s = self.dataset.sesion(sesion)
+            propia = s.camara_para(camara.config['tipo'], camara.config.get('fuente', ''))
+            if propia is None:
+                self.motivos_mesa[id] = (f'la sesión {sesion} no tiene una cámara '
+                                         f'{camara.config["tipo"]} con fuente '
+                                         f'{camara.config.get("fuente", "")!r}')
+                return
+            mesa = s.mesa(propia)
+        except (OSError, ValueError, KeyError) as error:
+            self.motivos_mesa[id] = f'no se pudo leer la referencia: {error}'[:200]
+            return
+        if mesa is None:
+            self.motivos_mesa[id] = f'la cámara {propia} de {sesion} no tiene referencia de mesa'
+            return
+        self.mesas[id] = mesa
+        self.motivos_mesa[id] = ''
+
+    def activar_sesion(self, sesion):
+        """Cambia la sesión activa y recarga la referencia de mesa de cada cámara."""
+        self.dataset.activar(sesion)
+        for camara in self.camaras.values():
+            self._cargar_mesa(camara)
+        return sesion
 
     def _fusionar(self):
         while not self.stop_fusion.wait(.06):
@@ -59,9 +98,13 @@ class Estado:
             if camara.cuadro is not None and cuadro.instante <= camara.cuadro.instante:
                 return
         if camara.config['rol'] != 'profundidad':
-            imagen, lecturas, tinta = leer(cuadro.color, self.vocabulario)
+            imagen, lecturas, tinta, diagnostico = leer_detallado(
+                cuadro.color, self.vocabulario, cuadro.profundidad,
+                self.config['intrinsecos'].get(camara.config['id']) or cuadro.intrinsecos,
+                mesa=self.mesas.get(camara.config['id']))
         else:
             imagen, lecturas, tinta = reducir_resolucion(cuadro.color), [], []
+            diagnostico = {'etapa': 'profundidad', 'motivo': 'esta cámara solo aporta profundidad'}
         observaciones = [lectura['observacion'] for lectura in lecturas]
         detecciones = [(lectura['token'], lectura['x'], lectura['y']) for lectura in lecturas]
         vista = imagen.copy()
@@ -110,7 +153,7 @@ class Estado:
                 color[~valido] = 0
                 camara.jpeg_depth = cv2.imencode('.jpg', color)[1].tobytes()
             camara.historial.append({'secuencia': camara.secuencia, 'instante': cuadro.instante, 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'observaciones': observaciones, 'tinta': tinta, 'profundidad': cuadro.profundidad, 'intrinsecos': cuadro.intrinsecos})
-            camara.datos = {'firma': firma, 'ambito': 'camara', 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'estable': estable, 'instrucciones': candidato, 'profundidad': cuadro.profundidad is not None, 'avisos': avisos, 'compatible': not avisos}
+            camara.datos = {'firma': firma, 'ambito': 'camara', 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'estable': estable, 'instrucciones': candidato, 'profundidad': cuadro.profundidad is not None, 'avisos': avisos, 'compatible': not avisos, 'localizacion': diagnostico}
 
     def resumen(self):
         with self.lock:
@@ -141,8 +184,12 @@ class Estado:
                 dispositivos.append(item)
             with self.vocabulario.lock:
                 etiquetas = {s['lexema']: s['nombre'] for s in self.vocabulario.listar() if s['tipo'] == 'pila' and s['lexema'].startswith('sculpt_label_')}
+            sesion_dataset = {'id': self.dataset.activa(),
+                              'camaras': {id: {'mesa': id in self.mesas,
+                                               'motivo': self.motivos_mesa.get(id, '')}
+                                          for id in self.camaras}}
             return {'sesion': self.sesion, 'camaras': dispositivos, 'principal': self.config['principal'], 'adaptadores': capacidades(), 'etiquetas': etiquetas, 'configuracion_fusion': dict(self.config['fusion']), 'fusion': fusionado,
-                    **self.lector.estado()}
+                    'sesion_dataset': sesion_dataset, **self.lector.estado()}
 
     def cuadro(self, id):
         camara = self.camaras[id]
@@ -152,17 +199,18 @@ class Estado:
             return camara.cuadro
 
     def _agregar(self, datos):
-        """Valida un dispositivo nuevo y lo deja creado y en la configuración, sin abrirlo.
-
-        Rechaza tipo desconocido, webcam sin índice numérico, duplicado de tipo y fuente, y rol
-        que el dispositivo no puede cumplir. Devuelve la configuración del dispositivo creado.
-        """
+        """Valida y registra un dispositivo nuevo, sin abrirlo."""
         tipo = datos.get('tipo')
-        if tipo not in {'webcam', 'realsense', 'kinect'}:
-            raise ValueError('Selecciona webcam, RealSense o Kinect v2. Identifica primero el modelo de Kinect.')
+        if tipo not in {'webcam', 'realsense', 'realsense_db3', 'kinect'}:
+            raise ValueError('Selecciona webcam, RealSense, grabación .db3 o Kinect v2.')
         fuente = str(datos.get('fuente', '')).strip()
         if tipo == 'webcam' and not fuente.isdigit():
             raise ValueError('La webcam necesita un índice: 0, 1, 2…')
+        if tipo == 'realsense_db3':
+            ruta = Path(fuente).expanduser().resolve()
+            if ruta.suffix.lower() != '.db3' or not ruta.is_file():
+                raise ValueError('Indica la ruta completa de una grabación .db3 existente.')
+            fuente = str(ruta)
         if any(c.config['tipo'] == tipo and c.config['fuente'] == fuente for c in self.camaras.values()):
             raise ValueError('Ese dispositivo ya está agregado.')
         nombre = str(datos.get('nombre', '')).strip()[:80] or tipo
@@ -175,8 +223,7 @@ class Estado:
         return config
 
     def _area_declarada(self, datos):
-        """Área de trabajo que piden estos datos: los cuatro límites si vienen, `None` si se
-        retira a propósito, y la vigente si no se menciona. Es un dato de la instalación."""
+        """Área de trabajo pedida: los cuatro límites, `None` si se retira, o la vigente."""
         area = self.config['fusion'].get('area_trabajo')
         if any(datos.get(k) not in (None, '') for k in ('x_min', 'x_max', 'y_min', 'y_max')):
             try:
@@ -191,10 +238,9 @@ class Estado:
         return area
 
     def _configurar_fusion(self, datos):
-        """Guarda modo, pasos y área de trabajo, y reinicia la lectura con esa configuración.
+        """Guarda modo, pasos y área, y reinicia la lectura.
 
-        Los dos pasos son dos medidas, una por tamaño de bloque, y deben diferir al menos 2 mm:
-        si toda la cadena usa el mismo bloque, el segundo se deja vacío.
+        Los dos pasos deben diferir al menos 2 mm; con un solo tamaño de bloque el segundo va vacío.
         """
         modo = datos.get('modo', 'fusion')
         paso = float(datos.get('paso_mm', self.config['fusion']['paso_mm']))
@@ -214,16 +260,14 @@ class Estado:
         self.lector.reiniciar(self.config['fusion'])
 
     def _poses_comunes(self, datos):
-        """Pose de cada cámara conectada contra el mismo tablero inmóvil, en un solo marco.
-
-        Exige dos cámaras o más, imágenes separadas menos de 0.5 s, intrínsecos en cada una y
-        error de reproyección menor que 1 px. No escribe nada: devuelve las poses o levanta.
-        """
+        """Pose de cada cámara conectada contra el mismo tablero, en un marco común."""
         tablero = Calibracion(int(datos['columnas']), int(datos['filas']), float(datos['mm']))
         activos = [c for c in self.camaras.values() if c.estado == 'conectada']
-        if len(activos) < 2:
-            raise ValueError('Conecta al menos dos cámaras y muestra el mismo tablero inmóvil a todas.')
+        if not activos:
+            raise ValueError('Conecta una cámara y muestra el tablero inmóvil.')
         cuadros = {c.config['id']: self.cuadro(c.config['id']) for c in activos}
+        if len(activos) == 1 and next(iter(cuadros.values())).profundidad is None:
+            raise ValueError('Una sola cámara necesita profundidad para situar las fichas en 3D.')
         tiempos = [c.instante for c in cuadros.values()]
         if max(tiempos)-min(tiempos) > .5:
             raise ValueError('Las imágenes están demasiado separadas en el tiempo. Intenta de nuevo.')
@@ -242,8 +286,12 @@ class Estado:
         with self.lock:
             if accion == 'agregar':
                 config = self._agregar(datos)
+                self._cargar_mesa(self.camaras[config['id']])
                 self.guardar()
                 return config
+            if accion == 'activar_sesion':
+                self.activar_sesion(datos.get('sesion') or None)
+                return self.resumen()
             if accion == 'configurar_fusion':
                 self._configurar_fusion(datos)
                 self.guardar()
@@ -257,8 +305,10 @@ class Estado:
             id = datos['id']
             camara = self.camaras[id]
             if accion == 'iniciar':
-                if not next(c for c in capacidades() if c['tipo'] == camara.config['tipo'])['disponible']:
-                    raise ValueError('Falta instalar el controlador de este dispositivo. Consulta la guía de conexión.')
+                adaptador = next(c for c in capacidades() if c['tipo'] == camara.config['tipo'])
+                if not adaptador['disponible']:
+                    raise ValueError(adaptador['requisito'])
+                self._cargar_mesa(camara)
                 camara.iniciar()
             elif accion == 'detener':
                 camara.detener()
@@ -271,6 +321,7 @@ class Estado:
                 self.config['intrinsecos'].pop(id, None)
                 self.config['poses'].pop(id, None)
                 self.sesiones.pop(id, None)
+                self.mesas.pop(id, None)
                 if self.config['principal'] == id:
                     self.config['principal'] = None
             elif accion == 'principal':

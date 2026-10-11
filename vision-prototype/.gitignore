@@ -5,8 +5,6 @@ __pycache__/
 simulador_3d/generado/interprete.js
 datos_locales/
 !README.md
-!docs/
-!docs/*.md
 !herramientas/
 !herramientas/*.py
 !tests/
@@ -16,6 +14,5 @@ datos_locales/
 !simulador_3d/tests/*.test.mjs
 simulador_3d/**/*.md
 simulador_3d/capturas/
-docs/alcance.*
-docs/grafo-conceptos.html
+docs/
 

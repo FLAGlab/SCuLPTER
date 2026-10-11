@@ -8,16 +8,14 @@ import cv2
 import numpy as np
 
 from adjacency import ARIDAD_BLOQUE
-# Reexportados a propósito: las medidas viven en `plataforma.medidas`, pero pruebas y
-# herramientas llevan tiempo importándolas desde aquí y esos nombres se mantienen.
-from plataforma.medidas import (AREA_TRABAJO, CONFIGURACION_PASOS, PASO_CORTO_MM,  # noqa: F401
-                                PASO_LARGO_MM, PLANO_FICHA_MAX_MM, PLANO_FICHA_MIN_MM)
+# Reexportadas para los importadores existentes.
+from plataforma.medidas import (AREA_TRABAJO, ANCHO_BLOQUE_MM, CONFIGURACION_PASOS,  # noqa: F401
+                                LADO_FICHA_MM, PASO_CORTO_MM, PASO_LARGO_MM,
+                                PLANO_FICHA_MAX_MM, PLANO_FICHA_MIN_MM)
 
-LADO_FICHA_MM = 15.0
 ALTO_OPERACION_MM = 37.0
 ALTO_PARAMETRO_MM = 23.0
 PASO_PARAMETRO_MM = 20.0
-ANCHO_BLOQUE_MM = 21.0
 HUECO_CONECTOR_MM = 29.5
 LARGO_CUERPO = {1: 65.5, 2: 85.5}
 COLOR_MESA = (208, 208, 208)

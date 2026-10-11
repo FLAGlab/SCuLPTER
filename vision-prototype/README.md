@@ -7,6 +7,17 @@ virtuales reciben píxeles rasterizados desde los STL del proyecto y pasan por e
 reconocimiento y la misma fusión que usarán las físicas. Está en
 [GEMELO_DIGITAL.md](docs/GEMELO_DIGITAL.md).
 
+La **localización de fichas** está separada del reconocimiento de símbolos desde
+[LOCALIZACION.md](docs/LOCALIZACION.md), que explica por qué el detector anterior no dibujaba
+ningún recuadro sobre las fichas a más de 325 mm de la cámara y qué falta comprobar con capturas
+reales de la D435i.
+
+El **conjunto de escenas físicas** se organiza por sesiones, cada una con varias cámaras y una
+referencia de mesa propia por cámara; se anota en CVAT y se reparte por sesión completa. La
+estructura, la verificación del recorrido y el protocolo de la primera sesión están en
+[DATASET_FISICO.md](docs/DATASET_FISICO.md). El servicio en vivo usa la referencia de la sesión
+activa, no una ruta global.
+
 El **ciclo continuo de lectura** —construir y modificar el montaje y ver la lectura y el veredicto
 de Scala actualizarse— está en [LECTURA_CONTINUA.md](docs/LECTURA_CONTINUA.md), junto con la lista
 exacta de capturas y calibración que falta para demostrarlo con cámaras reales. Todas las cifras
@@ -23,13 +34,14 @@ Es la cadena que recorre una captura. Si buscas dónde se decide algo, está aqu
 | 1. API local | `servicio.py` | Expone el estado y las acciones; un hilo por petición |
 | 2. Estado compartido | `plataforma/estado.py` | Un hilo de captura por cámara y un único hilo de fusión |
 | 3. Dispositivo | `plataforma/dispositivos.py` | Webcam, RealSense, Kinect v2 y reproducción de grabaciones |
-| 4. Reconocimiento | `plataforma/lectura.py` | Regiones y símbolos de **un** cuadro |
-| 5. Vocabulario | `plataforma/vocabulario.py`, `clasificador_simbolos.py` | Plantillas por símbolo; devuelve similitud, no probabilidad |
-| 6. Fusión | `plataforma/fusion.py` | Acuerdo entre vistas, posición, quietud, oclusión y grafo físico |
-| 7. Geometría | `plataforma/geometria_fusion.py`, `adjacency.py` | Triangulación, proyección y orden de la cadena |
-| 8. Ciclo de lectura | `plataforma/lector.py` | Una versión por montaje leído y un veredicto por versión |
-| 9. Lenguaje | `simulador_3d/generado/interprete.js` | El veredicto, generado desde `src/main/scala/sculpter/` |
-| 10. IDE | `simulador_3d/` | Muestra programa, traza y evidencia por ficha |
+| 4. Localización | `plataforma/localizacion.py` | **Dónde** hay una cara de ficha, midiendo en mm con la profundidad |
+| 5. Reconocimiento | `plataforma/lectura.py` | **Qué símbolo** es cada cara ya localizada |
+| 6. Vocabulario | `plataforma/vocabulario.py`, `clasificador_simbolos.py` | Plantillas por símbolo; devuelve similitud, no probabilidad |
+| 7. Fusión | `plataforma/fusion.py` | Acuerdo entre vistas, posición, quietud, oclusión y grafo físico |
+| 8. Geometría | `plataforma/geometria_fusion.py`, `adjacency.py` | Triangulación, proyección y orden de la cadena |
+| 9. Ciclo de lectura | `plataforma/lector.py` | Una versión por montaje leído y un veredicto por versión |
+| 10. Lenguaje | `simulador_3d/generado/interprete.js` | El veredicto, generado desde `src/main/scala/sculpter/` |
+| 11. IDE | `simulador_3d/` | Muestra programa, traza y evidencia por ficha |
 
 `plataforma/medidas.py` contiene las medidas del montaje físico y la configuración de fusión que
 se deriva de ellas. Lo comparten la ruta principal y el gemelo, y no depende de ninguno de los dos.

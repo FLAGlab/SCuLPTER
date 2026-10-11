@@ -30,6 +30,56 @@ Una RealSense aporta RGB y profundidad registrada al color. Las webcams pueden o
 
 El servicio conserva profundidad en milímetros e intrínsecos de fábrica. La vista coloreada cubre 0 a 3000 mm; negro representa muestras sin profundidad. La fusión puede usar esa profundidad para localizar las fichas visibles; aún no detecta el cuerpo completo del bloque ni sus conectores.
 
+### D435i en vivo en este Mac
+
+Con la D435i conectada al puerto USB 3 que sí entrega cuadros, inicia el capturador en una terminal. Solo este proceso accede al USB con `sudo`:
+
+```sh
+cd /Users/carlagonzalez/Desktop/SCuLPTER/vision-prototype
+sudo env PYTHONPATH=/Users/carlagonzalez/Downloads/librealsense-2.58.4/build/Release /Users/carlagonzalez/.virtualenvs/.venv/bin/python3 -u herramientas/servir_realsense.py --serial 944622074682
+```
+
+Cuando muestre `RealSense lista`, deja esa terminal abierta. En otra terminal inicia el servicio como usuario normal:
+
+```sh
+cd /Users/carlagonzalez/Desktop/SCuLPTER/vision-prototype
+PYTHONPATH=/Users/carlagonzalez/Downloads/librealsense-2.58.4/build/Release /Users/carlagonzalez/.virtualenvs/.venv/bin/python3 servicio.py
+```
+
+En **Cámaras**, detén la reproducción `.db3` si está activa. Añade **RealSense en vivo**, serial `944622074682`, aporte **Ambos**, y pulsa **Conectar**. El capturador entrega RGB y profundidad al servicio mediante un socket local al que solo puede conectarse esta cuenta de usuario; el servidor web no necesita permisos de administrador. Para terminar, pulsa **Desconectar** y luego `Ctrl+C` en ambas terminales. Si se cambia de puerto o se desconecta el cable, reinicia el capturador.
+
+### Reproducir una grabación .db3 en este Mac
+
+Si la D435i entrega profundidad en vivo pero falla el color por USB, puedes ensayar el recorrido del proyecto con una grabación hecha por `rs-record`. Para este equipo, inicia el servicio con el módulo `pyrealsense2` 2.58.4 compilado junto al SDK que produjo el archivo:
+
+```sh
+cd /Users/carlagonzalez/Desktop/SCuLPTER/vision-prototype
+PYTHONPATH=/Users/carlagonzalez/Downloads/librealsense-2.58.4/build/Release /Users/carlagonzalez/.virtualenvs/.venv/bin/python3 servicio.py
+```
+
+Para diagnosticar la captura en vivo, detén primero la reproducción y el servicio. Esta prueba no escribe archivos y recibe cuadros mediante el callback que también usa `rs-record`. En macOS, el acceso USB de librealsense suele requerir `sudo`:
+
+```sh
+cd /Users/carlagonzalez/Desktop/SCuLPTER/vision-prototype
+sudo env PYTHONPATH=/Users/carlagonzalez/Downloads/librealsense-2.58.4/build/Release /Users/carlagonzalez/.virtualenvs/.venv/bin/python3 -u herramientas/diagnosticar_realsense.py
+```
+
+Si informa cuadros de RGB y profundidad, el problema está en cómo el servicio recibe los flujos en vivo y se puede adaptar esa ruta. Si falla al abrir USB o recibe cero cuadros, revisa primero conexión, alimentación, puerto y permisos antes de cambiar el procesamiento.
+
+Cuando el diagnóstico recibe ambos flujos, comprueba también el adaptador que usa el servicio (tres cuadros alineados, sin guardar archivos):
+
+```sh
+sudo env PYTHONPATH=/Users/carlagonzalez/Downloads/librealsense-2.58.4/build/Release /Users/carlagonzalez/.virtualenvs/.venv/bin/python3 -u herramientas/diagnosticar_realsense.py --adaptador --serial 944622074682
+```
+
+En **Cámaras → Añadir cámara o grabación**, elige **Grabación RealSense (.db3)**. Escribe un nombre, selecciona **Ambos** y pega esta ruta en **Archivo .db3**:
+
+```text
+/Users/carlagonzalez/Desktop/SCuLPTER/vision-prototype/datos_locales/capturas/d435i_prueba.db3
+```
+
+Pulsa **Añadir cámara** y luego **Reproducir**. Verás RGB y profundidad alineada; **Detener** cierra la reproducción. El archivo se repite en bucle para mantener cuadros recientes. Esta fuente sirve para probar la lectura y la interfaz con imágenes grabadas; no confirma que la captura USB en vivo esté resuelta. Mientras se reproduce, la ejecución física queda deshabilitada: una grabación no acredita el montaje actual. Los resultados dependen de lo que quedó dentro del encuadre y de las referencias de símbolos registradas.
+
 Referencia del SDK: [alinear profundidad con RGB](https://github.com/realsenseai/librealsense/blob/master/wrappers/python/examples/align-depth2color.py).
 
 ## Montaje B · Kinect v2 y webcams
@@ -44,7 +94,7 @@ Referencias: [libfreenect2](https://github.com/OpenKinect/libfreenect2), [API py
 
 - Usa un tablero físico de ajedrez con medidas conocidas. La configuración cuenta **esquinas interiores**, no casillas: 9 × 6 y casillas de 25 mm son los valores iniciales.
 - Para intrínsecos de webcam: inicia la sesión, captura al menos 15 posiciones y ángulos variados y pulsa **Calcular y guardar**. Se rechazan capturas casi iguales y resultados con RMS igual o superior a 1 píxel. Ese umbral es una comprobación básica, no una garantía de precisión métrica.
-- Para posición común: fija las cámaras, deja el mismo tablero inmóvil visible para todas y pulsa **Registrar cámaras conectadas**. Cada cámara debe tener intrínsecos. Las imágenes deben estar separadas como máximo 0,5 segundos. Las transformaciones guardadas llevan puntos del tablero a cada cámara: `p_cámara = R · p_tablero + t`, en milímetros.
+- Para posición común: fija las cámaras, deja el mismo tablero inmóvil visible para todas y pulsa **Registrar cámaras conectadas**. Una sola cámara RGB-D también puede registrarse así; una cámara sin profundidad no basta para situar las fichas en 3D. Cada cámara debe tener intrínsecos. Si hay varias, las imágenes deben estar separadas como máximo 0,5 segundos. Las transformaciones guardadas llevan puntos del tablero a cada cámara: `p_cámara = R · p_tablero + t`, en milímetros.
 - La simetría del tablero puede invertir el origen. Mantén una esquina y orientación de referencia identificadas en todas las vistas. Para montajes donde esto no pueda garantizarse, conviene sustituir el tablero por ChArUco o marcadores identificables antes de usar las poses para fusión automática.
 - Si cambia la resolución, el dispositivo asociado a un índice o su posición, repite la calibración correspondiente. Recalcular intrínsecos invalida las poses comunes guardadas.
 

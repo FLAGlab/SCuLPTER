@@ -170,7 +170,10 @@ class Vocabulario:
             foto = "ref_" + uuid.uuid4().hex + ".png"
             if not cv2.imwrite(str(carpeta / foto), img):
                 raise ValueError("No se pudo guardar la imagen.")
-            self.propios.append({"lexema": token, "nombre": nombre, "tipo": tipo, "foto": foto, "confirmado": True, "origen": "foto"})
+            entrada = {"lexema": token, "nombre": nombre, "tipo": tipo, "foto": foto, "confirmado": True, "origen": "foto"}
+            if datos.get("procedencia"):
+                entrada["procedencia"] = datos["procedencia"]
+            self.propios.append(entrada)
             ruta = self.datos / "simbolos.json"
             temporal = ruta.with_suffix('.tmp'); temporal.write_text(json.dumps(self.propios, ensure_ascii=False)); temporal.replace(ruta)
             self.recargar()

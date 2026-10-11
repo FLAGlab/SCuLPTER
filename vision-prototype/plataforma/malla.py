@@ -3,9 +3,10 @@ from pathlib import Path
 
 import numpy as np
 
+from plataforma.medidas import LADO_OPERACION_MM  # noqa: F401
+
 MODELOS = Path(__file__).resolve().parents[1] / 'simulador_3d' / 'modelos'
 LARGO_CONECTOR_MM = 42.5
-LADO_OPERACION_MM = 20.0
 FICHAS_LAMINA = {'POP': (0, -22), 'MOV': (25, 25), 'DUP': (0, 60), 'JMP': (0, 30),
                  'CMP': (25, 0), '?': (30, -25), 'MOD': (30, -50), 'MUL': (0, -69),
                  'ADD': (24, -75), 'SUB': (0, -45), 'NEG': (0, -95), 'DIV': (25, -100)}

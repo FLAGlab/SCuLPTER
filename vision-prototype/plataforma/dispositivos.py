@@ -1,8 +1,12 @@
 import importlib.util
+import os
+import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass
 from collections import OrderedDict, deque
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -17,9 +21,12 @@ class Cuadro:
 
 
 def capacidades():
+    puente_activo = sys.platform == 'darwin' and (Path('/tmp') / f'sculpter-realsense-{os.getuid()}.sock').exists()
+    realsense_disponible = puente_activo if sys.platform == 'darwin' and os.geteuid() != 0 else importlib.util.find_spec("pyrealsense2") is not None
     return [
         {"tipo": "webcam", "nombre": "Webcam USB o integrada", "disponible": True, "requisito": "Permiso de cámara para Python y un índice de dispositivo."},
-        {"tipo": "realsense", "nombre": "RealSense RGB + profundidad", "disponible": importlib.util.find_spec("pyrealsense2") is not None, "requisito": "Instalar librealsense y pyrealsense2 compatibles con este equipo."},
+        {"tipo": "realsense", "nombre": "RealSense RGB + profundidad", "disponible": realsense_disponible, "requisito": "En macOS, inicia antes herramientas/servir_realsense.py con sudo; en otros sistemas, instala pyrealsense2."},
+        {"tipo": "realsense_db3", "nombre": "Grabación RealSense (.db3)", "disponible": importlib.util.find_spec("pyrealsense2") is not None, "requisito": "Archivo .db3 grabado con rs-record y pyrealsense2 compatible. Reproduce color y profundidad; no es imagen en vivo."},
         {"tipo": "kinect", "nombre": "Kinect v2", "disponible": importlib.util.find_spec("pylibfreenect2") is not None, "requisito": "Instalar libfreenect2 y pylibfreenect2. Conectar alimentación y USB 3; usar webcams para leer símbolos."},
     ]
 
@@ -105,27 +112,81 @@ class RealSense:
         import pyrealsense2 as rs
         self.rs = rs
         self.pipe = rs.pipeline()
+        self.cuadros = queue.Queue(maxsize=2)
         config = rs.config()
         if fuente:
             config.enable_device(str(fuente))
-        config.enable_stream(rs.stream.depth)
-        config.enable_stream(rs.stream.color, rs.format.bgr8)
-        perfil = self.pipe.start(config)
+        # La configuración predeterminada y el callback son los que entregaron RGB y
+        # profundidad en el diagnóstico de esta D435i. No pedir BGR8 por USB: llega RGB8.
+        self.callback = self._recibir
+        perfil = self.pipe.start(config, self.callback)
         self.escala = perfil.get_device().first_depth_sensor().get_depth_scale() * 1000
         self.alinear = rs.align(rs.stream.color)
 
+    def _recibir(self, frame):
+        if not frame.is_frameset():
+            return
+        cuadro = frame.as_frameset()
+        try:
+            self.cuadros.put_nowait(cuadro)
+        except queue.Full:
+            try:
+                self.cuadros.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.cuadros.put_nowait(cuadro)
+            except queue.Full:
+                pass
+
+    def _esperar_frames(self):
+        try:
+            return self.cuadros.get(timeout=2)
+        except queue.Empty:
+            raise RuntimeError('RealSense no entregó imágenes en dos segundos.') from None
+
     def leer(self):
-        frames = self.alinear.process(self.pipe.wait_for_frames(1500))
+        frames = self.alinear.process(self._esperar_frames())
         color, depth = frames.get_color_frame(), frames.get_depth_frame()
         if not color or not depth:
             raise RuntimeError("RealSense no entregó RGB y profundidad alineados.")
         intr = color.profile.as_video_stream_profile().intrinsics
         k = [[intr.fx, 0, intr.ppx], [0, intr.fy, intr.ppy], [0, 0, 1]]
-        return Cuadro(np.asanyarray(color.get_data()).copy(), time.monotonic(), np.asanyarray(depth.get_data()).astype(np.float32) * self.escala,
+        imagen = np.asanyarray(color.get_data())
+        if color.profile.format() == self.rs.format.rgb8:
+            imagen = cv2.cvtColor(imagen, cv2.COLOR_RGB2BGR)
+        elif color.profile.format() != self.rs.format.bgr8:
+            raise RuntimeError("La grabación RealSense no tiene color RGB8 o BGR8.")
+        return Cuadro(imagen.copy(), time.monotonic(), np.asanyarray(depth.get_data()).astype(np.float32) * self.escala,
                       {"camera_matrix": k, "dist_coeffs": list(intr.coeffs), "image_size": [intr.width, intr.height], "origen": "fabrica"})
 
     def cerrar(self):
         self.pipe.stop()
+
+
+class RealSenseGrabacion(RealSense):
+    def __init__(self, fuente):
+        import pyrealsense2 as rs
+        ruta = Path(fuente).expanduser().resolve()
+        if ruta.suffix.lower() != '.db3' or not ruta.is_file():
+            raise ValueError('Selecciona la ruta completa de una grabación .db3 existente.')
+        self.rs = rs
+        self.pipe = rs.pipeline()
+        config = rs.config()
+        config.enable_device_from_file(str(ruta), repeat_playback=True)
+        perfil = self.pipe.start(config)
+        self.escala = perfil.get_device().first_depth_sensor().get_depth_scale() * 1000
+        self.alinear = rs.align(rs.stream.color)
+
+    def _esperar_frames(self):
+        return self.pipe.wait_for_frames(1500)
+
+
+def abrir_realsense(fuente):
+    if sys.platform == 'darwin' and os.geteuid() != 0:
+        from plataforma.puente_realsense import RealSenseRemota
+        return RealSenseRemota(fuente)
+    return RealSense(fuente)
 
 
 class Kinect:
@@ -200,7 +261,7 @@ class Camara:
     def _capturar(self):
         dispositivo = None
         try:
-            dispositivo = {"webcam": Webcam, "realsense": RealSense, "kinect": Kinect}[self.config["tipo"]](self.config["fuente"])
+            dispositivo = {"webcam": Webcam, "realsense": abrir_realsense, "realsense_db3": RealSenseGrabacion, "kinect": Kinect}[self.config["tipo"]](self.config["fuente"])
             ultimo = 0
             while not self.stop.is_set():
                 cuadro = dispositivo.leer()

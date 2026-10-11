@@ -44,13 +44,9 @@ PX_POR_MM_TESTIGO = 2.0
 
 
 def sincronizar(fuentes, ahora):
-    """Cámaras utilizables en esta captura, con un cuadro por cámara.
+    """Un cuadro por cámara calibrada y reciente, dentro de VENTANA_SINCRONIA_S.
 
-    Entra una cámara conectada, con calibración común y con imagen de menos de FRESCURA_S. De su
-    historial se elige el cuadro más cercano a la captura más nueva, y solo si cae dentro de
-    VENTANA_SINCRONIA_S: una vista rezagada se deja fuera con su aviso en vez de sustituirla por
-    un cuadro viejo, porque fusionar instantes distintos mueve las piezas.
-
+    Una vista fuera de la ventana se descarta con aviso en vez de usar un cuadro viejo.
     Devuelve (cuadros, avisos).
     """
     disponibles, avisos = [], []
@@ -284,14 +280,8 @@ def reconstruir(piezas, paso):
 
 
 def localizar(obs, modelos, cuadros, en_volumen):
-    """Sitúa cada observación en 3D y agrupa las que son la misma pieza vista por varias cámaras.
-
-    Dos vías, en este orden: la nube de profundidad de un sensor RGB-D y la triangulación de
-    pares de observaciones compatibles entre dos cámaras. Los pares se agrupan en racimos por
-    cercanía, se prefiere el racimo con más cámaras de respaldo y se exige al menos dos vistas
-    por pieza. `en_volumen` descarta lo que cae fuera de la banda del plano de las fichas.
-
-    Devuelve (grupos, usadas): los grupos localizados y los índices de `obs` ya consumidos.
+    """Sitúa cada observación en 3D, por profundidad o triangulación, y agrupa las de la
+    misma pieza. Devuelve (grupos, usadas).
     """
     medidas, usadas = [], set()
     nubes = [(c['id'], nube(c['modelo'], c['profundidad'])) for c in cuadros if c['profundidad'] is not None]
@@ -361,14 +351,8 @@ def localizar(obs, modelos, cuadros, en_volumen):
 
 
 def asociar_restantes(grupos, usadas, obs, modelos):
-    """Añade a los grupos ya localizados las observaciones que quedaron sin usar.
-
-    Primero por reproyección, exigiendo correspondencia única y con margen (`asociar_unicos`).
-    Después, para las que siguen libres y sí tienen lexema, por coincidencia de símbolo dentro
-    de ALCANCE_MISMO_SIMBOLO y solo si el segundo candidato queda lo bastante lejos: una ficha
-    repetida y ambigua se deja suelta antes que asignarla mal.
-
-    Modifica `grupos` y `usadas` en el sitio.
+    """Añade a los grupos las observaciones libres, por reproyección y luego por
+    símbolo. Una coincidencia ambigua se deja libre. Modifica `grupos` y `usadas`.
     """
     for cam, m in modelos.items():
         indices = [i for i, o in enumerate(obs) if i not in usadas and o['camara'] == cam]
@@ -405,8 +389,7 @@ def asociar_restantes(grupos, usadas, obs, modelos):
             mejores[0][1]['obs'].append(n)
             usadas.add(n)
 
-# Qué acreditan las cámaras sobre un sitio de la mesa. Las tres se responden solo con los
-# cuadros de esta captura: ninguna usa el estado del seguimiento.
+# Testigos de un sitio de la mesa, calculados solo con los cuadros de esta captura.
 def encuadran(cuadros, punto):
     cuantas = 0
     for c in cuadros:
@@ -511,12 +494,8 @@ class Fusion:
             return copy.deepcopy(self._actualizar(fuentes, config, ahora))
 
     def _discontinuidad(self, instante):
-        """¿El hueco contra la captura anterior rompe el flujo? Avanza el instante de referencia.
-
-        El hueco solo cuenta como corte si rompe la cadencia observada. Un ciclo lento pero
-        regular —dos webcams en este equipo tardan medio segundo— no es una discontinuidad, y
-        tratarlo como tal reiniciaba la espera de quietud en cada captura, de modo que la lectura
-        nunca llegaba a confirmarse.
+        """¿El hueco desde la captura anterior rompe la cadencia observada? Avanza
+        el instante de referencia. Un ciclo lento pero regular no es una discontinuidad.
         """
         hueco = None if self.ultimo_instante is None else instante-self.ultimo_instante
         if hueco is not None and hueco > 0:
