@@ -375,6 +375,15 @@ class RutaRgbTest(unittest.TestCase):
         centros = self.centros(self.escena())
         self.assertTrue(any(np.hypot(cx - 430, cy - 220) < 6 for cx, cy in centros), centros)
 
+    def test_la_cara_gris_de_push_vista_en_oblicuo_se_encuentra(self):
+        """Franja real de la LifeCam (2026-10-13, orbit-alta, cuadro 001). Los rayos arrancan donde
+        acaba la tinta: con un radio fijo, sacado del lado largo de la flecha, ya empezaban fuera
+        de una cara que el oblicuo deja baja y se escapaban por la mesa."""
+        from pathlib import Path
+        imagen = cv2.imread(str(Path(__file__).parent / 'datos' / 'imagenes' / 'lifecam_push_oblicuo.png'))
+        centros = self.centros(imagen)
+        self.assertTrue(any(np.hypot(cx - 225, cy - 192) < 6 for cx, cy in centros), centros)
+
     def test_un_trazo_oscuro_sobre_fondo_variado_no_es_tinta(self):
         yy, xx = np.mgrid[0:480, 0:640]
         fondo = np.where((yy // 6 + xx // 6) % 2, 170, 90).astype(np.uint8)

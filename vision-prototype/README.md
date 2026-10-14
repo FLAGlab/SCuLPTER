@@ -23,6 +23,27 @@ de Scala actualizarse— está en [LECTURA_CONTINUA.md](docs/LECTURA_CONTINUA.md
 exacta de capturas y calibración que falta para demostrarlo con cámaras reales. Todas las cifras
 publicadas hoy son **virtuales**: ningún programa físico se ha leído todavía.
 
+## Uso diario y organización
+
+La entrada habitual es `servicio.py`: abre el IDE y gestiona cámaras, lectura y pruebas.
+En **Cámaras** quedan las imágenes y controles; ajustes, inspección y registro se abren
+cuando hacen falta. **Herramientas** agrupa Símbolos, Piezas y Gemelo.
+
+- `plataforma/`: dispositivos, visión, datos y simulación; implementación del sistema.
+- `herramientas/`: captura, importación, evaluación y experimentos independientes.
+- `tests/`: verificaciones; no son pasos del uso diario.
+- Raíz: entrada del servicio y algoritmos compartidos.
+
+Hay dos recorridos de dataset: el antiguo `capture_dataset.py` / `evaluar_dataset.py`
+y el de sesiones `dataset_fisico.py` / `guardar_muestra.py` / `evaluar_localizacion.py`.
+Para nuevas sesiones anotadas se usa el segundo. Las pruebas del IDE quedan sin revisión;
+no se convierten automáticamente en datos de entrenamiento.
+
+La consolidación debe empezar por las herramientas y sus consumidores.
+`adjacency.py` sigue importado por la fusión; el vocabulario sostiene el reconocimiento;
+el gemelo y su renderizador sostienen pruebas sintéticas. Retirar sus páginas del menú
+principal no elimina esas dependencias ni sus datos.
+
 ## Dónde está cada cosa
 
 ### La ruta principal: de la cámara al veredicto

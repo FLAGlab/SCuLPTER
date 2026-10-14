@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote, parse_qs
 
 from plataforma.estado import Estado
+from plataforma.laboratorio import Laboratorio
 from plataforma.gemelo import Gemelo
 from plataforma.vocabulario import PROGRAMAS
 
@@ -13,6 +14,8 @@ RAIZ = Path(__file__).resolve().parent
 
 def crear_handler(estado):
     perezoso = {}
+    laboratorio = Laboratorio(estado)
+    estado.laboratorio = laboratorio
 
     def gemelo():
         if 'gemelo' not in perezoso:
@@ -61,7 +64,11 @@ def crear_handler(estado):
             ruta = unquote(urlparse(self.path).path)
             try:
                 if ruta == '/api/estado':
-                    self.enviar(estado.resumen())
+                    self.enviar({**estado.resumen(), 'laboratorio': laboratorio.resumen()})
+                elif ruta.startswith('/api/laboratorio/archivo/'):
+                    archivo = laboratorio.archivo(ruta.removeprefix('/api/laboratorio/archivo/'))
+                    tipo = 'image/png' if archivo.suffix == '.png' else 'text/plain; charset=utf-8'
+                    self.enviar(archivo.read_bytes(), tipo=tipo)
                 elif ruta == '/api/simbolos':
                     with estado.vocabulario.lock:
                         self.enviar(estado.vocabulario.listar())
@@ -133,7 +140,11 @@ def crear_handler(estado):
                 if not isinstance(datos, dict):
                     raise ValueError('Se esperaba un objeto.')
                 ruta = urlparse(self.path).path
-                if ruta == '/api/simbolos/guardar':
+                if ruta.startswith('/api/laboratorio/'):
+                    resultado = laboratorio.accion(ruta.rsplit('/', 1)[-1], datos)
+                elif ruta == '/api/simbolos/guardar':
+                    if laboratorio._ocupado():
+                        raise ValueError('Termina la prueba antes de cambiar las referencias.')
                     resultado = {'lexema': estado.vocabulario.guardar(datos)}
                 elif ruta == '/api/simbolos/probar':
                     resultado = {'candidatos': estado.vocabulario.puntuar(estado.vocabulario.imagen(datos['imagen']))}
@@ -157,7 +168,13 @@ def crear_handler(estado):
                     else:
                         raise ValueError('Acción desconocida.')
                 elif ruta.startswith('/api/camaras/'):
+                    if laboratorio._ocupado():
+                        if laboratorio.trabajo['tipo'] == 'identificar':
+                            raise ValueError('Espera a que termine la búsqueda de cámaras.')
+                        if ruta.rsplit('/', 1)[-1] not in ('iniciar', 'detener'):
+                            raise ValueError('Termina la prueba antes de cambiar su configuración.')
                     resultado = estado.accion(ruta.rsplit('/', 1)[-1], datos)
+                    laboratorio.registrar(ruta.removeprefix('/api/'), datos)
                 else:
                     raise ValueError('Acción desconocida.')
                 self.enviar(resultado)
@@ -188,6 +205,7 @@ def main():
         pass
     finally:
         servidor.server_close()
+        estado.laboratorio.cerrar()
         estado.cerrar()
 
 

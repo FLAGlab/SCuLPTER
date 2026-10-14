@@ -1,3 +1,4 @@
+import { crearLaboratorio } from './laboratorio.js';
 import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -33,6 +34,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   const listaLateral = document.createElement('div'); listaLateral.id = 'vistas-lista'; listaLateral.hidden = true; $('paleta').append(listaLateral);
   const propiedad = (nombre, control) => `<label class="prop"><span class="lbl">${nombre}</span>${control}</label>`;
   const seccion = (titulo, contenido) => `<div class="sec"><div class="sec-head">${titulo}</div>${contenido}</div>`;
+  const plegable = (titulo, contenido) => `<details class="sec sec-plegable"><summary>${titulo}</summary>${contenido}</details>`;
   raiz.innerHTML = `
     <div id="vistas-lienzo">
       <section data-vista="ejemplos" hidden><div class="frame-label" id="ejemplo-nombre"></div><div class="frame" id="ejemplo-plano"></div><div class="frame-label">Texto SCuLPT</div><pre class="frame code" id="ejemplo-codigo"></pre></section>
@@ -49,7 +51,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
         </div>
         <div class="frame-label">Lecturas, fusión y programa candidato</div><div class="frame" id="gemelo-conjunto"></div>
       </section>
-      <section data-vista="camaras" hidden><div id="mapa-camaras"></div><p id="camaras-vacio" class="canvas-note">Montaje de referencia. Añade tus cámaras desde el panel derecho para registrar sus posiciones y ver las imágenes reales.</p><div id="camaras-lista"></div><div class="frame-label">Evidencia por cámara y mesa estimada</div><div class="frame" id="evidencia-lectura"></div></section>
+      <section data-vista="camaras" hidden><div id="laboratorio-vision"></div><p id="camaras-vacio" class="canvas-note">Añade una cámara para comenzar.</p><div id="camaras-lista"></div><details class="cam-detalle"><summary>Posiciones</summary><div id="mapa-camaras"></div></details><details class="cam-detalle"><summary>Evidencia de la lectura</summary><div class="frame" id="evidencia-lectura"></div></details></section>
       <section data-vista="calibracion" hidden><div class="frame-label">Captura actual</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
       <section data-vista="simbolos" hidden><div class="frame-label">Preparación del ensayo</div><div class="frame" id="ensayo-vocabulario"></div><div id="simbolos-lista"></div></section>
       <section data-vista="piezas" hidden><div class="frame-label">Piezas que computan</div><div class="frame pieces">${MODELOS.slice(0,4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><div class="frame-label">Piezas de estructura</div><div class="frame pieces">${MODELOS.slice(4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><p class="canvas-note">Las piezas de estructura sostienen la escultura. No cambian el programa.</p><div class="frame-label" id="modelo-titulo"></div><div class="frame" id="modelo-visor" aria-label="Vista 3D de la pieza"></div></section>
@@ -58,10 +60,10 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       <div id="vista-mensaje" role="status" hidden></div>
       <div data-prop="ejemplos" hidden>${seccion('Ejemplo', '<div id="ejemplo-descripcion"></div><p class="nota" id="ejemplo-forma"></p><div class="acciones"><button class="accion" id="ejemplo-mesa">Cargar en mesa</button><button class="accion primaria" id="ejemplo-ejecucion">Ver ejecución</button><button class="accion" id="ejemplo-gemelo">Abrir en el Gemelo</button></div>')}${seccion('Montaje', '<button class="accion" id="ejemplo-gravedad">Ver con gravedad</button><p class="nota">Sujeta un extremo del montaje y levántalo. Cada bloque gira en su conector y se apoya en la mesa al soltarlo.</p><button class="accion" id="ejemplo-restaurar" disabled>Restaurar mi montaje</button>')}</div>
       <div data-prop="camaras" hidden>
-        ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><p class="nota">Hay dos señales de estabilidad distintas. Cada cámara dice si <b>su vista</b> lleva 0.8 s quieta; la fusión dice si <b>el programa</b> lleva 0.8 s sin cambiar. La que habilita la ejecución es la del origen principal, marcada en la lista. Una ficha «sin contradicción» tiene posición y símbolo que ninguna cámara desmiente, y eso puede venir de una sola vista: no es corroboración independiente. Sin profundidad no se distingue una ficha tapada de una que nadie miró. Los encajes se estiman por geometría.</p>')}
-        ${seccion('Lectura compartida', `<form id="fusion-form">${propiedad('Origen','<select class="fld" name="modo"><option value="fusion">Combinar cámaras</option><option value="individual">Una sola vista</option></select>')}${propiedad('Paso 1 par. (mm)','<input class="fld" name="paso_mm" type="number" min="20" max="300" step="0.1" required>')}${propiedad('Paso 2 par. (mm)','<input class="fld" name="paso_2_mm" type="number" min="20" max="300" step="0.1" placeholder="opcional">')}<p class="nota">Distancia entre los centros de las fichas de operación de dos bloques consecutivos, medida sobre el montaje armado. Los bloques de uno y dos parámetros dan pasos distintos: mide los dos. Deja el segundo vacío solo si toda la cadena usa el mismo tamaño. No pongas el promedio; consulta MEDIR_PASO.md. Con los dos pasos, la distancia esperada se ata a la operación: PUSH y MOV llevan bloque de dos parámetros, y POP, DUP, NEG, ? y JMP de uno. CMP y las aritméticas admiten uno o dos, así que su unión se informa como sin confirmar en vez de darse por buena. Todas las cámaras deben estar registradas en Calibración.</p><button class="accion" type="submit">Guardar lectura</button></form><div id="fusion-resumen" class="nota"></div><div id="fusion-piezas"></div><button class="accion" id="fusion-reiniciar">Reiniciar seguimiento</button><p class="nota">Si retiraste piezas, reinicia cuando la mesa esté visible. No se borran piezas por una oclusión.</p>`)}
-        ${seccion('Lecturas por cámara', '<div id="cam-lecturas-panel"></div><p class="nota">Los puntajes miden similitud, no probabilidad. Una cámara que no ve una ficha no vota en su contra.</p>')}
-        ${seccion('Cámara', `<div id="cam-controles"></div><details><summary>Añadir cámara o grabación</summary><form id="camara-form">${propiedad('Nombre','<input class="fld" name="nombre" placeholder="Cenital…" maxlength="80" required>')}${propiedad('Dispositivo','<select class="fld" name="tipo"><option value="webcam">Webcam</option><option value="kinect">Kinect v2</option><option value="realsense">RealSense en vivo</option><option value="realsense_db3">Grabación RealSense (.db3)</option></select>')}${propiedad('Índice / serial','<input class="fld" name="fuente" value="0">')}${propiedad('Aporte','<select class="fld" name="rol"><option value="simbolos">Símbolos</option><option value="profundidad">Profundidad</option><option value="ambos">Ambos</option></select>')}<p class="nota" id="camara-fuente-ayuda" hidden>Introduce la ruta completa del archivo .db3. Se reproducirá en bucle con color y profundidad; no es imagen en vivo.</p><button class="accion primaria" type="submit">Añadir cámara</button></form></details><details><summary>Montajes y controladores</summary><div id="adaptadores"></div><p class="nota">A: RealSense y webcams. B: Kinect v2 y webcams. Kinect de Xbox 360 es v1 y aún no tiene adaptador; identifica el modelo antes de conectarlo.</p></details>`)}
+        ${seccion('Resultado', '<div id="lectura-estado"></div><pre id="lectura-codigo" class="code"></pre><label class="toggle-row">Actualizar la mesa<input type="checkbox" id="lectura-aplicar"><span class="toggle"></span></label><details><summary>¿Cuándo se confirma?</summary><p class="nota">La lectura debe estar completa y estable. Los encajes se estiman por geometría; una sola vista no aporta corroboración independiente.</p></details>')}
+        ${plegable('Añadir por índice o serial', `<details><summary>Añadir cámara o grabación</summary><form id="camara-form">${propiedad('Nombre','<input class="fld" name="nombre" placeholder="Cenital…" maxlength="80" required>')}${propiedad('Dispositivo','<select class="fld" name="tipo"><option value="webcam">Webcam</option><option value="kinect">Kinect v2</option><option value="realsense">RealSense en vivo</option><option value="realsense_db3">Grabación RealSense (.db3)</option></select>')}${propiedad('Índice / serial','<input class="fld" name="fuente" value="0">')}${propiedad('Aporte','<select class="fld" name="rol"><option value="simbolos">Símbolos</option><option value="profundidad">Profundidad</option><option value="ambos">Ambos</option></select>')}<p class="nota" id="camara-fuente-ayuda" hidden>Introduce la ruta completa del archivo .db3. Se reproducirá en bucle con color y profundidad; no es imagen en vivo.</p><button class="accion primaria" type="submit">Añadir cámara</button></form></details><details><summary>Montajes y controladores</summary><div id="adaptadores"></div><p class="nota">A: RealSense y webcams. B: Kinect v2 y webcams. Kinect de Xbox 360 es v1 y aún no tiene adaptador; identifica el modelo antes de conectarlo.</p></details>`)}
+        ${plegable('Configurar lectura', `<form id="fusion-form">${propiedad('Origen','<select class="fld" name="modo"><option value="fusion">Combinar cámaras</option><option value="individual">Una sola vista</option></select>')}${propiedad('Paso 1 par. (mm)','<input class="fld" name="paso_mm" type="number" min="20" max="300" step="0.1" required>')}${propiedad('Paso 2 par. (mm)','<input class="fld" name="paso_2_mm" type="number" min="20" max="300" step="0.1" placeholder="opcional">')}<details><summary>Cómo medir</summary><p class="nota">Mide entre centros de fichas de operación consecutivas. Un paso por tamaño de bloque; deja el segundo vacío si todos son iguales. Consulta MEDIR_PASO.md.</p></details><button class="accion" type="submit">Guardar lectura</button></form><div id="fusion-resumen" class="nota"></div><div id="fusion-piezas"></div><button class="accion" id="fusion-reiniciar">Reiniciar seguimiento</button><p class="nota">Reinicia después de retirar piezas.</p>`)}
+        ${plegable('Lecturas por cámara', '<div id="cam-lecturas-panel"></div><p class="nota">Los puntajes miden similitud, no probabilidad. Una cámara que no ve una ficha no vota en su contra.</p>')}
       </div>
       <div data-prop="calibracion" hidden>
         ${seccion('Tablero', `<form id="calibracion-form">${propiedad('Cámara','<select class="fld" name="id" id="cal-camara"></select>')}${propiedad('Columnas','<input class="fld" name="columnas" type="number" min="3" max="20" value="9" required>')}${propiedad('Filas','<input class="fld" name="filas" type="number" min="3" max="20" value="6" required>')}${propiedad('Cuadro (mm)','<input class="fld" name="mm" type="number" min="1" max="200" step="0.1" value="25" required>')}<p class="nota">Cuenta las esquinas interiores. Mide el tablero impreso.</p><button class="accion" type="submit">Reiniciar capturas</button></form>`)}
@@ -83,6 +85,14 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       <div data-prop="piezas" hidden>${seccion('Imprimir', '<p id="modelo-descripcion"></p><a class="accion primaria" id="modelo-descarga" download>Descargar STL original</a><p class="nota">Se descarga la geometría original. Las fichas de operaciones comparten una lámina; los parámetros editables de la mesa son representaciones.</p>')}${seccion('Total', '<div id="inventario"></div>')}</div>
       <div id="servicio-seccion" class="sec"><div class="sec-head">Servicio de visión</div><div id="servicio-estado" role="status"></div><div id="servicio-ayuda" hidden><p class="nota">Desde vision-prototype inicia <code>python3 servicio.py</code>.</p><button class="accion" id="servicio-reintentar">Volver a conectar</button></div></div>
     </aside>`;
+
+  const laboratorio = crearLaboratorio($('laboratorio-vision'), { api, base });
+  const seccionDispositivos = $('camara-form').closest('.sec');
+  const altaManual = $('camara-form').closest('details');
+  altaManual.querySelector('summary').textContent = 'Por índice, serial o archivo';
+  $('laboratorio-vision').querySelector('.lab-identificar').append(altaManual);
+  $('lab-panel-1').append($('adaptadores').closest('details'));
+  seccionDispositivos.remove();
 
   const ordenOperaciones = ['PUSH','MOV','POP','DUP','NEG','?','JMP','CMP','ADD','SUB','MUL','DIV','MOD'];
   const rotulo = s => s.lexema.startsWith('sculpt_label_') ? s.nombre : s.lexema;
@@ -114,6 +124,18 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   };
   listaLateral.addEventListener('click', e => {
     const ejemplo = e.target.closest('[data-elegir-ejemplo]'); if (ejemplo) seleccionarEjemplo(Number(ejemplo.dataset.elegirEjemplo));
+    const tarjetaCamara = e.target.closest('[data-camara]');
+    if (e.target.closest('[data-ampliar]')) {
+      const ampliada = tarjetaCamara.classList.toggle('ampliada');
+      tarjetaCamara.querySelector('[data-ampliar]').setAttribute('aria-pressed', String(ampliada));
+    }
+    const canal = e.target.closest('button[data-canal]');
+    if (canal) {
+      tarjetaCamara.dataset.canal = canal.dataset.canal;
+      tarjetaCamara.querySelectorAll('[data-canal]').forEach(b => b.setAttribute('aria-pressed', String(b === canal)));
+      pintarCamaras();
+    }
+    if (e.target.closest('[data-inspeccionar]')) laboratorio.inspeccionar(tarjetaCamara.dataset.camara);
     const simbolo = e.target.closest('[data-simbolo]'); if (simbolo) seleccionarSimbolo(simbolo.dataset.simbolo);
     const pieza = e.target.closest('[data-modelo]'); if (pieza) modelo(pieza.dataset.modelo);
   });
@@ -288,7 +310,13 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     const previsto = !camaras.length;
     const localizadas = fichas.filter(c => c.plano);
     $('mapa-camaras').innerHTML = `<div class="frame-label">${previsto ? 'Montaje previsto' : 'Posiciones respecto al tablero'}</div><div class="mapa-frame"><svg viewBox="0 0 360 205" role="img" aria-label="${previsto ? 'Esquema de cámaras sugeridas alrededor de la mesa' : 'Ubicación calibrada de las cámaras alrededor del tablero'}"><rect x="110" y="54" width="160" height="104" rx="8" class="mapa-mesa"/><text x="190" y="110" text-anchor="middle" class="mapa-texto">Mesa</text>${localizadas.map((c, i) => `<line x1="${c.plano[0]}" y1="${c.plano[1]}" x2="190" y2="106" class="mapa-rayo"/><circle cx="${c.plano[0]}" cy="${c.plano[1]}" r="15" class="mapa-punto"/><text x="${c.plano[0]}" y="${c.plano[1] + 4}" text-anchor="middle" class="mapa-numero">${i + 1}</text>`).join('')}</svg><p class="nota">${previsto ? 'Ubicaciones sugeridas, todavía sin cámaras configuradas.' : localizadas.length ? `${localizadas.length} de ${fichas.length} posiciones registradas. Los ejes siguen el tablero de calibración.` : 'Registra las cámaras en Calibración para situarlas en este plano.'}</p></div>`;
-    $('camaras-lista').innerHTML = fichas.map((c, i) => `<article class="catalogo-camara" ${c.prevista ? '' : `data-camara="${escapar(c.id)}"`}><div class="catalogo-cabecera"><span class="catalogo-numero">${i + 1}</span><div><strong>${escapar(c.nombre)}</strong><p class="nota">${escapar(c.ubicacion)}</p></div></div><div class="frame camara-frame">${c.prevista ? '<p class="nota">Vista disponible cuando se conecte una cámara.</p>' : `<img class="camara-imagen cam-color" alt="Imagen de ${escapar(c.nombre)}" hidden><p class="cam-sin-imagen nota">Conecta esta cámara para ver su imagen.</p>`}</div>${c.prevista ? '' : `<div class="frame profundidad-frame" hidden><img class="camara-imagen cam-depth" alt="Profundidad de ${escapar(c.nombre)}" hidden></div>`}<p class="catalogo-aporte">${escapar(c.aporte)}</p></article>`).join('');
+    $('camaras-lista').innerHTML = (previsto ? [] : fichas).map((c, i) => `<article class="catalogo-camara" data-camara="${escapar(c.id)}" data-control="${escapar(c.id)}">
+      <header class="catalogo-cabecera"><span class="catalogo-numero">${i + 1}</span><div><strong>${escapar(c.nombre)}</strong><span class="cam-estado"></span></div><button class="accion cam-ampliar" data-ampliar aria-label="Ampliar ${escapar(c.nombre)}" aria-pressed="false">⤢</button></header>
+      <div class="frame camara-frame"><img class="camara-imagen cam-color" alt="Imagen de ${escapar(c.nombre)}" hidden><img class="camara-imagen cam-depth" alt="Profundidad de ${escapar(c.nombre)}" hidden><p class="cam-sin-imagen nota">Sin imagen</p></div>
+      <div class="cam-vista"><button class="accion" data-canal="color" aria-pressed="true">Color</button><button class="accion" data-canal="depth" aria-pressed="false" hidden>Profundidad</button><span class="cam-metricas"></span></div>
+      <p class="cam-error error" role="status"></p>
+      <footer class="acciones"><button class="accion primaria" data-accion="iniciar">${c.tipo === 'realsense_db3' ? 'Reproducir' : 'Conectar'}</button><button class="accion" data-accion="detener">${c.tipo === 'realsense_db3' ? 'Detener' : 'Desconectar'}</button><button class="accion" data-inspeccionar>Ver detección</button><details class="cam-mas"><summary aria-label="Más opciones de ${escapar(c.nombre)}">···</summary><div><button class="accion" data-accion="principal">Usar para programa</button><button class="accion" data-accion="eliminar">Quitar</button><p class="nota">${escapar(c.tipo)} · ${escapar(c.fuente)}<br>${escapar(c.ubicacion)}</p></div></details></footer>
+    </article>`).join('');
     $('camaras-vacio').hidden = !previsto;
   }
   pintarCatalogo([]);
@@ -297,7 +325,6 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     if (firma !== firmaCamaras) {
       firmaCamaras = firma;
       pintarCatalogo(estado.camaras);
-      $('cam-controles').innerHTML = estado.camaras.map(c => `<div class="cam-row" data-control="${c.id}"><strong>${escapar(c.nombre)}</strong><p class="cam-estado nota"></p><p class="cam-error error"></p><div class="acciones"><button class="accion" data-accion="iniciar">${c.tipo === 'realsense_db3' ? 'Reproducir' : 'Conectar'}</button><button class="accion" data-accion="detener">${c.tipo === 'realsense_db3' ? 'Detener' : 'Desconectar'}</button><button class="accion" data-accion="principal">Usar para programa</button><button class="accion" data-accion="eliminar">Quitar</button></div></div>`).join('');
       const anterior = $('cal-camara').value;
       $('cal-camara').innerHTML = estado.camaras.map(c => `<option value="${c.id}">${escapar(c.nombre)}</option>`).join('');
       if (estado.camaras.some(c => c.id === anterior)) $('cal-camara').value = anterior;
@@ -305,7 +332,15 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     for (const c of estado.camaras) {
       const tarjeta = raiz.querySelector(`[data-control="${c.id}"]`);
       const marco = raiz.querySelector(`[data-camara="${c.id}"]`);
-      tarjeta.querySelector('.cam-estado').textContent = `${c.estado}${c.resolucion ? ' · ' + c.resolucion.join(' × ') : ''}${c.estable ? ' · vista quieta' : ''}${estado.configuracion_fusion?.modo === 'individual' && estado.principal === c.id ? ' · fuente del programa, su señal habilita la ejecución' : ''}`;
+      const reciente = estado.laboratorio?.camaras.find(l => l.id === c.id)?.imagen_reciente;
+      tarjeta.dataset.reciente = !!reciente;
+      tarjeta.querySelector('.cam-estado').textContent = c.estado === 'conectada' ? (reciente ? (c.tipo === 'realsense_db3' ? 'Reproduciendo' : 'En vivo') : 'Sin imagen reciente') : c.estado;
+      tarjeta.querySelector('.cam-metricas').textContent = [c.resolucion?.join(' × '), reciente && Number.isFinite(c.rendimiento?.proceso_hz) ? `${c.rendimiento.proceso_hz.toFixed(1)} fps procesados` : ''].filter(Boolean).join(' · ');
+      tarjeta.querySelector('[data-inspeccionar]').disabled = !reciente;
+      tarjeta.querySelector('[data-accion="iniciar"]').hidden = ['conectada', 'conectando', 'deteniendo'].includes(c.estado);
+      tarjeta.querySelector('[data-accion="detener"]').hidden = !['conectada', 'conectando', 'deteniendo'].includes(c.estado);
+      tarjeta.querySelector('[data-canal="depth"]').hidden = !c.profundidad;
+      if (!c.profundidad) tarjeta.dataset.canal = 'color';
       tarjeta.querySelector('.cam-error').textContent = c.error;
       tarjeta.querySelector('[data-accion="iniciar"]').disabled = ['conectada', 'conectando', 'deteniendo'].includes(c.estado);
       tarjeta.querySelector('[data-accion="detener"]').disabled = !['conectada', 'conectando'].includes(c.estado);
@@ -313,9 +348,9 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       tarjeta.querySelector('[data-accion="principal"]').disabled = c.rol === 'profundidad';
       tarjeta.querySelector('[data-accion="eliminar"]').disabled = false;
       for (const [selector, sufijo, disponible] of [['.cam-color', '', c.secuencia], ['.cam-depth', '/depth', c.profundidad]]) {
-        const img = marco.querySelector(selector); img.hidden = !disponible;
+        const img = marco.querySelector(selector); img.hidden = !disponible || (selector === '.cam-depth' ? marco.dataset.canal !== 'depth' : marco.dataset.canal === 'depth');
         marco.querySelector('.cam-sin-imagen').hidden = !!c.secuencia;
-        marco.querySelector('.profundidad-frame').hidden = !c.profundidad;
+        marco.querySelector('.cam-sin-imagen').textContent = c.estado === 'conectando' ? 'Conectando…' : 'Sin imagen';
         if (disponible && pagina === 'camaras') img.src = `${base}/api/imagen/${c.id}${sufijo}?v=${c.secuencia}`;
       }
 
@@ -382,6 +417,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       if (solicitud !== solicitudEstado || !esEstadoActual(nuevoEstado, estado)) return;
       if (estado && nuevoEstado.sesion !== estado.sesion) pausarLectura('El servicio se reinició. Esperando una nueva lectura.');
       estado = nuevoEstado;
+      laboratorio.actualizar(estado);
       $('servicio-estado').textContent = 'Servicio local conectado'; $('servicio-ayuda').hidden = true;
       $('adaptadores').innerHTML = estado.adaptadores.map(a => `<div><strong>${escapar(a.nombre)}</strong><span>${a.disponible ? 'Controlador disponible' : 'Falta controlador'}</span><small>${escapar(a.requisito)}</small></div>`).join('');
       pintarCamaras();
@@ -391,6 +427,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       // actualizando la mesa.
       veredictoFisico?.(null, null, 'Se perdió la conexión con el servicio: no hay lectura de cámaras que respalde esta mesa.');
       pausarLectura('Se perdió la conexión con las cámaras. El montaje mostrado es la última lectura.');
+      laboratorio.actualizar(null);
       estado = null; $('lectura-estado').className = ''; $('servicio-estado').textContent = 'Servicio local desconectado';
       for (const tarjeta of raiz.querySelectorAll('[data-control]')) {
         tarjeta.querySelector('.cam-estado').textContent = 'Sin conexión · última imagen recibida';
@@ -727,6 +764,18 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     } catch (e) { mensaje('No se pudo abrir el modelo: ' + e.message, true); }
   }
   raiz.addEventListener('click', e => {
+    const tarjetaCamara = e.target.closest('[data-camara]');
+    if (e.target.closest('[data-ampliar]')) {
+      const ampliada = tarjetaCamara.classList.toggle('ampliada');
+      tarjetaCamara.querySelector('[data-ampliar]').setAttribute('aria-pressed', String(ampliada));
+    }
+    const canal = e.target.closest('button[data-canal]');
+    if (canal) {
+      tarjetaCamara.dataset.canal = canal.dataset.canal;
+      tarjetaCamara.querySelectorAll('[data-canal]').forEach(b => b.setAttribute('aria-pressed', String(b === canal)));
+      pintarCamaras();
+    }
+    if (e.target.closest('[data-inspeccionar]')) laboratorio.inspeccionar(tarjetaCamara.dataset.camara);
     const simbolo = e.target.closest('[data-simbolo]'); if (simbolo) seleccionarSimbolo(simbolo.dataset.simbolo);
     const boton = e.target.closest('[data-accion]');
     if (boton) actuar(() => api('camaras/' + boton.dataset.accion, { id: boton.closest('[data-control]').dataset.control }), 'Configuración actualizada.');
@@ -797,6 +846,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   window.addEventListener('pagehide', () => { clearTimeout(timer); cerrarVisor(); cerrarEscena3d(); });
   return {
     mostrar(destino) {
+      (destino === 'camaras' ? raiz.querySelector('[data-vista="camaras"]') : raiz).append($('vistas-propiedades'));
       pagina = destino; const activa = !['mesa', 'ejecucion'].includes(destino); raiz.hidden = !activa;
       for (const s of raiz.querySelectorAll('[data-vista]')) s.hidden = s.dataset.vista !== destino;
       for (const s of raiz.querySelectorAll('[data-prop]')) s.hidden = s.dataset.prop !== destino;

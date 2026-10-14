@@ -171,3 +171,74 @@ body.modo-gravedad #aviso { color: var(--text-2); }
 .mesa-ficha { position: absolute; transform: translate(-50%, -50%); min-width: 22px; height: 18px; display: grid; place-items: center; border-radius: 3px; font: 10px/1 var(--mono, monospace); }
 .mesa-ficha.firme { background: #00c77f; color: #04150d; }
 .mesa-ficha.provisional { border: 1px dashed #ffc14d; color: #ffc14d; }
+
+.laboratorio { margin-bottom: 24px; padding: 20px; background: #fff; border: 1px solid #dedede; border-radius: 12px; }
+.laboratorio h2 { margin: 0 0 8px; font-size: 20px; }
+.laboratorio h3 { font-size: 15px; margin: 8px 0; }
+.laboratorio p, .laboratorio li { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.laboratorio details { border-top: 1px solid #e7e7e7; padding: 12px 0; }
+.laboratorio summary { cursor: pointer; font-weight: 600; }
+.laboratorio form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 14px 0; }
+.laboratorio label { display: grid; gap: 6px; font-size: 13px; }
+.laboratorio input, .laboratorio select, .laboratorio textarea { font: inherit; padding: 8px; border: 1px solid #ccc; border-radius: 6px; max-width: 100%; }
+.laboratorio .lab-captura { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.laboratorio fieldset, .laboratorio label:has(textarea) { grid-column: 1 / -1; min-width: 0; }
+.lab-seleccion { display: flex; flex-wrap: wrap; gap: 16px; }
+.lab-seleccion label { display: flex; align-items: center; }
+.lab-camaras, .lab-pasos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+.lab-camaras article, .lab-pasos figure { margin: 0; min-width: 0; padding: 12px; border: 1px solid #e4e4e4; border-radius: 8px; }
+.lab-camaras img, .lab-pasos img { width: 100%; max-height: 250px; object-fit: contain; background: #f6f6f6; }
+.lab-pasos figcaption { font-size: 13px; margin-top: 8px; }
+.laboratorio pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; font-size: 12px; }
+.lab-mensaje, .lab-error { color: #8b3700; }
+@media (max-width: 700px) { .laboratorio .lab-captura { grid-template-columns: 1fr; } }
+.lab-dispositivos img { width: 220px; max-height: 150px; object-fit: contain; }
+.lab-dispositivos form { padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
+
+/* Controles diarios; explicación y diagnóstico a demanda. */
+.nav-herramientas { margin: 10px 16px; font-size: 13px; }
+.nav-herramientas summary { cursor: pointer; color: var(--text-2); padding: 6px 0; }
+.nav-herramientas .pg { width: 100%; }
+#vistas .sec-plegable > summary { font-weight: 600; margin: 0; }
+#vistas .sec-plegable[open] > summary { margin-bottom: 12px; }
+#vistas .cam-detalle { margin-bottom: 16px; color: var(--text-2); font-size: 13px; }
+.laboratorio { padding: 16px 20px; }
+.laboratorio h2 { font-size: 18px; }
+.laboratorio .lab-ayuda { border: 0; padding: 0; }
+.laboratorio .lab-ayuda summary { font-size: 12px; font-weight: 400; color: var(--text-2); }
+.laboratorio .lab-mensaje:empty, .laboratorio .lab-error:empty { display: none; }
+
+/* Las vistas comparten tamaño; la profundidad sustituye al color. */
+#camaras-lista { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); margin-bottom: 20px; align-items: start; }
+.catalogo-camara { padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.catalogo-camara.ampliada { grid-column: 1 / -1; }
+.catalogo-cabecera { align-items: center; min-height: 36px; gap: 8px; }
+.catalogo-cabecera strong { font-size: 14px; }
+.cam-ampliar { margin-left: auto; font-size: 20px; }
+.cam-estado { display: block; font-size: 12px; color: var(--text-2); margin-top: 3px; }
+.cam-estado::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #aaa; margin-right: 6px; }
+[data-reciente="true"] .cam-estado::before { background: #27814d; }
+#vistas .catalogo-camara .camara-frame { aspect-ratio: 16 / 9; min-height: 0; padding: 0; position: relative; background: #171b20; border-radius: 6px; }
+#vistas .catalogo-camara .camara-imagen { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: contain; }
+#vistas .catalogo-camara [hidden] { display: none !important; }
+#vistas .catalogo-camara .cam-sin-imagen { color: #c4c9d0; }
+.cam-vista { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.cam-vista [aria-pressed="true"] { background: #e5edf8; color: #244b79; }
+.cam-metricas { font-size: 11px; color: var(--text-2); margin-left: auto; }
+.cam-error:empty { display: none; }
+.catalogo-camara footer { margin-top: 12px; flex-wrap: wrap; }
+.cam-mas { margin-left: auto; position: relative; }
+.cam-mas summary { cursor: pointer; padding: 4px 10px; font-size: 18px; list-style: none; }
+.cam-mas > div { position: absolute; z-index: 5; right: 0; width: 190px; padding: 12px; background: var(--panel); box-shadow: 0 4px 20px #0002; border-radius: 8px; }
+.laboratorio { padding: 0; background: transparent; border: 0; margin-bottom: 16px; }
+.laboratorio header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.laboratorio h2 { margin: 0; }
+.lab-barra { display: flex; gap: 6px; flex-wrap: wrap; }
+.lab-barra [aria-expanded="true"] { background: #e5edf8; color: #244b79; }
+.laboratorio > .lab-panel { margin-top: 12px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.laboratorio > .lab-panel > summary { display: none; }
+.laboratorio > [hidden] { display: none !important; }
+#vistas:has([data-vista="camaras"]:not([hidden])) #vistas-lienzo { right: 24px; }
+#vistas [data-vista="camaras"] #vistas-propiedades { position: static; width: auto; max-height: none; margin-top: 16px; overflow: visible; }
+#vistas [data-prop="camaras"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+#vistas [data-prop="camaras"][hidden] { display: none; }

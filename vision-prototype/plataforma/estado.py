@@ -77,9 +77,12 @@ class Estado:
             try:
                 with self.lock:
                     fuentes = []
+                    ahora = time.monotonic()
                     for camara in self.camaras.values():
                         with camara.lock:
                             id = camara.config['id']
+                            if camara.historial and camara.estado == 'conectada':
+                                camara.metricas['edad_fusion_s'].append(ahora - camara.historial[-1]['instante'])
                             fuentes.append({'id': id, 'nombre': camara.config['nombre'], 'estado': camara.estado,
                                             'historial': list(camara.historial), 'intrinsecos': self.config['intrinsecos'].get(id),
                                             'pose': self.config['poses'].get(id)})

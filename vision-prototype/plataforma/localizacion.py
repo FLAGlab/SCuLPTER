@@ -239,16 +239,19 @@ def _semillas_oscuras(suave, lado_min, lado_max, semillas, tinta):
     return semillas, tinta
 
 
-def _rayos(borde, cx, cy, desde, hasta, vecinas=()):
+def _rayos(borde, cx, cy, desde, hasta, vecinas=(), tinta=None):
     """Primer punto de arista en cada una de las direcciones, desde el centro de la tinta.
 
     Con `vecinas`, el rayo también se detiene donde queda más cerca de otra tinta que de la
-    suya: dos caras contiguas sin arista entre ellas se reparten por la mediatriz.
+    suya: dos caras contiguas sin arista entre ellas se reparten por la mediatriz. Con `tinta`,
+    cada rayo arranca donde acaba la tinta en su dirección y no a un radio fijo: el radio sale
+    del lado largo del trazo, y en una flecha sobre una cara aplastada por el oblicuo ese radio
+    ya cae fuera de la cara en las direcciones cortas.
     """
     alto, ancho = borde.shape
     puntos = []
     for dx, dy in DIRECCIONES:
-        r = desde
+        r = desde if tinta is None else _salida_de_tinta(tinta, cx, cy, dx, dy, desde)
         while r <= hasta:
             x, y = int(round(cx + dx * r)), int(round(cy + dy * r))
             if not (0 <= x < ancho and 0 <= y < alto):
@@ -258,6 +261,18 @@ def _rayos(borde, cx, cy, desde, hasta, vecinas=()):
                 break
             r += 1
     return puntos
+
+
+def _salida_de_tinta(tinta, cx, cy, dx, dy, tope):
+    """Distancia, en una dirección, a la que el rayo sale de la tinta, más dos píxeles."""
+    alto, ancho = tinta.shape
+    r = 1
+    while r < tope:
+        x, y = int(round(cx + dx * r)), int(round(cy + dy * r))
+        if not (0 <= x < ancho and 0 <= y < alto) or not tinta[y, x]:
+            break
+        r += 1
+    return r + 2
 
 
 def _caras_por_semilla(gris, lado_min, lado_max, tinta_minima=0., proporcion=.5, separar=False,
@@ -282,7 +297,8 @@ def _caras_por_semilla(gris, lado_min, lado_max, tinta_minima=0., proporcion=.5,
         vecinas = [(vx, vy) for vx, vy, vr in semillas if separar and radio >= lado_min / 2
                    and (vx, vy) != (cx, cy) and vr >= max(.5 * radio, lado_min / 2)
                    and np.hypot(vx - cx, vy - cy) <= 2 * radio * ALCANCE_TINTA]
-        puntos = _rayos(borde, cx, cy, radio + 2, min(lado_max * .8, radio * ALCANCE_TINTA), vecinas)
+        puntos = _rayos(borde, cx, cy, radio + 2, min(lado_max * .8, radio * ALCANCE_TINTA), vecinas,
+                        tinta if separar else None)
         if len(puntos) < RAYOS_MINIMOS:
             continue
         (rcx, rcy), (rw, rh), angulo = cv2.minAreaRect(np.array(puntos, np.float32))

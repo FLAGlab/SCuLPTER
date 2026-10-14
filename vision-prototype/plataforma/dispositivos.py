@@ -241,6 +241,16 @@ class Camara:
         self.datos = {}
         self.historial = deque(maxlen=6)
         self.limpios = OrderedDict()
+        self.pendiente = None
+        self.hay_cuadro = threading.Event()
+        self.metricas = self._metricas_nuevas()
+
+    @staticmethod
+    def _metricas_nuevas():
+        return {'leidos': 0, 'procesados': 0, 'descartados': 0, 'errores_proceso': 0,
+                'leido_en': deque(maxlen=60), 'procesado_en': deque(maxlen=60),
+                'proceso_s': deque(maxlen=60), 'edad_proceso_s': deque(maxlen=60),
+                'edad_fusion_s': deque(maxlen=60)}
 
     def iniciar(self):
         if self.hilo and self.hilo.is_alive():
@@ -254,21 +264,33 @@ class Camara:
             self.jpeg = None
             self.jpeg_depth = None
             self.observaciones = []
+            self.pendiente = None
+            self.metricas = self._metricas_nuevas()
         self.estado, self.error = "conectando", ""
         self.hilo = threading.Thread(target=self._capturar, daemon=True)
         self.hilo.start()
 
     def _capturar(self):
+        """Adquisición: lee sin esperar al reconocimiento y deja solo el último cuadro.
+
+        Un cuadro que llega antes de que se procese el anterior lo sustituye y se cuenta como
+        descartado: la cola nunca pasa de uno, así que un detector lento no acumula imágenes
+        viejas. El instante es el de recepción en el equipo, no el de exposición del sensor.
+        """
         dispositivo = None
+        procesador = threading.Thread(target=self._procesar, daemon=True)
         try:
             dispositivo = {"webcam": Webcam, "realsense": abrir_realsense, "realsense_db3": RealSenseGrabacion, "kinect": Kinect}[self.config["tipo"]](self.config["fuente"])
-            ultimo = 0
+            procesador.start()
             while not self.stop.is_set():
                 cuadro = dispositivo.leer()
-                if cuadro.instante - ultimo < .1:
-                    continue
-                ultimo = cuadro.instante
-                self.al_cuadro(self, cuadro)
+                with self.lock:
+                    if self.pendiente is not None:
+                        self.metricas['descartados'] += 1
+                    self.pendiente = cuadro
+                    self.metricas['leidos'] += 1
+                    self.metricas['leido_en'].append(cuadro.instante)
+                self.hay_cuadro.set()
         except Exception as exc:
             with self.lock:
                 self.estado, self.error = "error", str(exc)
@@ -281,6 +303,53 @@ class Camara:
                         self.error = str(exc)
             if self.stop.is_set():
                 self.estado = "desconectada"
+            self.hay_cuadro.set()
+            if procesador.is_alive():
+                procesador.join(timeout=3)
+
+    def _procesar(self):
+        """Procesamiento: siempre el cuadro más reciente; un fallo aquí no detiene la captura."""
+        while not self.stop.is_set():
+            if not self.hay_cuadro.wait(.5):
+                continue
+            with self.lock:
+                cuadro, self.pendiente = self.pendiente, None
+                self.hay_cuadro.clear()
+            if cuadro is None:
+                continue
+            inicio = time.monotonic()
+            try:
+                self.al_cuadro(self, cuadro)
+            except Exception as exc:
+                with self.lock:
+                    self.metricas['errores_proceso'] += 1
+                    self.error = f'No se pudo procesar un cuadro: {exc}'[:200]
+                continue
+            fin = time.monotonic()
+            with self.lock:
+                self.metricas['procesados'] += 1
+                self.metricas['procesado_en'].append(fin)
+                self.metricas['proceso_s'].append(fin - inicio)
+                self.metricas['edad_proceso_s'].append(inicio - cuadro.instante)
+
+    def rendimiento(self):
+        """Ritmos, tiempos y descartes de esta cámara, medidos en vivo en el equipo."""
+        def ritmo(instantes):
+            return round((len(instantes) - 1) / (instantes[-1] - instantes[0]), 2) \
+                if len(instantes) > 1 and instantes[-1] > instantes[0] else None
+
+        def resumen(valores):
+            return {'mediana': round(float(np.median(valores)), 3), 'p95': round(float(np.percentile(valores, 95)), 3)} \
+                if valores else None
+
+        with self.lock:
+            m = self.metricas
+            return {'captura_hz': ritmo(list(m['leido_en'])), 'proceso_hz': ritmo(list(m['procesado_en'])),
+                    'proceso_s': resumen(list(m['proceso_s'])), 'edad_al_procesar_s': resumen(list(m['edad_proceso_s'])),
+                    'edad_en_fusion_s': resumen(list(m['edad_fusion_s'])), 'leidos': m['leidos'],
+                    'procesados': m['procesados'], 'descartados': m['descartados'],
+                    'errores_proceso': m['errores_proceso'], 'cola': int(self.pendiente is not None),
+                    'reloj': 'recepción en el equipo (time.monotonic), no exposición del sensor'}
 
     def detener(self):
         self.stop.set()
@@ -290,4 +359,5 @@ class Camara:
 
     def resumen(self):
         with self.lock:
-            return {**self.config, "estado": self.estado, "error": self.error, "secuencia": self.secuencia, **self.datos, "observaciones": list(self.observaciones)}
+            datos = {**self.config, "estado": self.estado, "error": self.error, "secuencia": self.secuencia, **self.datos, "observaciones": list(self.observaciones)}
+        return {**datos, "rendimiento": self.rendimiento()}

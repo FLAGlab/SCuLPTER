@@ -139,3 +139,42 @@ Se verifican los ejemplos con el intérprete compilado y las pruebas de fusión,
 **Ver con gravedad** inicia una caída vertical de los conjuntos encajados, que se tratan como cuerpos rígidos. Las piezas sueltas caen por separado. El suelo impide que atraviesen la mesa. **Salir de gravedad** restablece las posiciones originales; el montaje y el texto ejecutable no cambian. Esta vista no simula torsión de articulaciones, rotura de uniones ni colisiones entre piezas.
 
 Los ejemplos no lineales usan giros en el plano de la mesa y conservan una secuencia explícita de conexiones. Los saltos del lenguaje determinan la ejecución; la forma de la escultura no añade instrucciones. Los ángulos son configuraciones virtuales y deben verificarse con las tolerancias de las piezas físicas.
+
+## Laboratorio en el IDE
+
+En **Cámaras → Laboratorio de cámaras** están los controles para identificar vistas,
+inspeccionar el detector y registrar una prueba. Reinicia el servicio después de
+actualizar el código y recarga el navegador:
+
+```sh
+python3 -u servicio.py --ruta-rgb caras
+```
+
+1. Con las cámaras desconectadas, **Buscar cámaras disponibles** prueba los índices
+   0–5 en procesos separados, con un límite de ocho segundos por índice. Pon nombre
+   a cada miniatura y añade la fuente; conecta después desde el panel derecho.
+   No se conoce el nombre nativo del dispositivo. La confirmación es visual y no
+   demuestra que una calibración siga siendo válida al reconectar.
+2. Consulta resolución, edad de imagen, ritmos de captura/procesamiento y errores.
+   Los ritmos corresponden a la última ventana de muestras, no al FPS nominal.
+3. Cambia **Método RGB** con las cámaras desconectadas. El seguimiento se reinicia;
+   al arrancar de nuevo el servicio prevalece su opción `--ruta-rgb`.
+4. **Inspeccionar cuadro actual** reprocesa una muestra e informa su secuencia.
+   Las máscaras que se muestran proceden de funciones reales del detector; si una
+   ruta no produce una etapa, no se inventa una imagen para representarla.
+   Fusión y Scala se muestran como estado posterior del servicio, no como resultado
+   sincronizado del cuadro aislado. Los motivos de reconocimiento se explican;
+   no se reconstruyen descartes de localización que el detector no instrumenta.
+5. **Iniciar prueba** registra de una a seis cámaras, hasta 120 segundos y 512 MB.
+   Toma hasta dos muestras por segundo de cuadros ya procesados; no abre dispositivos
+   nuevos y no es un video sin pérdidas. Repeticiones y cuadros ausentes quedan
+   anotados. El esperado se guarda únicamente como dato para evaluar.
+
+Cada prueba ocupa una carpeta nueva en `datos_locales/laboratorio/`, con configuración,
+huellas de código/referencias, originales PNG, profundidad en mm cuando existe y
+`cuadros.jsonl` con observaciones, rendimiento y estado del servicio al muestrear.
+Estas capturas no están revisadas ni entran automáticamente en el dataset anotado.
+El registro persistente `acciones.jsonl` incluye las solicitudes y comandos equivalentes;
+el panel permite exportar las últimas cien acciones. Los comandos suponen el puerto 8766.
+El capturador RealSense conserva el arranque externo con `sudo`; el IDE no solicita
+contraseñas ni abre un segundo capturador USB.
