@@ -176,8 +176,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--puerto', type=int, default=8766)
     parser.add_argument('--datos', type=Path, default=RAIZ / 'datos_locales')
+    parser.add_argument('--ruta-rgb', choices=('contornos', 'caras'), default='contornos',
+                        help='Lectura de las cámaras sin profundidad: contornos (la de siempre) o caras')
     args = parser.parse_args()
-    estado = Estado(RAIZ, args.datos)
+    estado = Estado(RAIZ, args.datos, args.ruta_rgb)
     servidor = ThreadingHTTPServer(('127.0.0.1', args.puerto), crear_handler(estado))
     print(f'SCuLPTER: http://127.0.0.1:{args.puerto}', flush=True)
     try:

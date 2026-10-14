@@ -26,6 +26,13 @@ PENDIENTE_HORIZONTAL = 0.25
 DIRECCIONES = [(float(np.cos(a)), float(np.sin(a))) for a in np.linspace(0, 2 * np.pi, 16, endpoint=False)]
 # Sin profundidad no hay escala física: la ventana de una cara es una fracción del lado corto.
 TINTA_MINIMA = 0.02
+CONTRASTE_TINTA = 25
+TRAZO_DENTRO = .85
+TRAZO_MINIMO = .15
+MARGEN_CARA = .9
+TINTA_OSCURA = 80
+ANILLO_UNIFORME = 12
+PROPORCION_RGB = 1 / 3
 LADO_MIN_RGB = 0.025
 LADO_MAX_RGB = 0.6
 
@@ -94,10 +101,10 @@ def _iou(a, b):
     return corte / float(aw * ah + bw * bh - corte)
 
 
-def _nms(cajas, umbral=SOLAPE_DUPLICADO):
-    """Una caja por cara: entre las que se solapan, la mayor."""
+def _nms(cajas, umbral=SOLAPE_DUPLICADO, preferidas=()):
+    """Una caja por cara: entre las que se solapan, la preferida y, a igualdad, la mayor."""
     salida = []
-    for c in sorted(cajas, key=lambda c: -c[2] * c[3]):
+    for c in sorted(cajas, key=lambda c: (c not in preferidas, -c[2] * c[3])):
         if all(_iou(c, s) < umbral for s in salida):
             salida.append(c)
     return salida
@@ -111,14 +118,14 @@ def _dentro(interior, exterior, minimo=.7):
     return ancho * alto >= minimo * iw * ih
 
 
-def _forma(contorno, lado_min, lado_max, rect=.72, solidez=.88):
+def _forma(contorno, lado_min, lado_max, rect=.72, solidez=.88, proporcion=.45):
     """Caja de un contorno casi cuadrado, rectangular y convexo, o None."""
     area = cv2.contourArea(contorno)
     if area <= 0:
         return None
     _, (rw, rh), _ = cv2.minAreaRect(contorno)
     largo, corto = max(rw, rh), min(rw, rh)
-    if not lado_min <= largo <= lado_max or corto < .45 * largo:
+    if not lado_min <= largo <= lado_max or corto < proporcion * largo:
         return None
     if area / max(1., rw * rh) < rect:
         return None
@@ -151,7 +158,7 @@ def _caras_por_tinta(gris, lado_min, lado_max):
     return caras
 
 
-def _caras_entre_aristas(gris, lado_min, lado_max):
+def _caras_entre_aristas(gris, lado_min, lado_max, proporcion=.45):
     """Regiones cerradas por aristas con forma de cara, tengan o no inscripción."""
     suave = cv2.GaussianBlur(gris, (5, 5), 0)
     borde = cv2.dilate(_aristas(suave, .55, 1.3), np.ones((3, 3), np.uint8))
@@ -167,7 +174,8 @@ def _caras_entre_aristas(gris, lado_min, lado_max):
             contornos, _ = cv2.findContours(componente, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if not contornos:
                 continue
-            caja = _forma(max(contornos, key=cv2.contourArea), lado / 1.6, lado * 1.6)
+            caja = _forma(max(contornos, key=cv2.contourArea), lado / 1.6, lado * 1.6,
+                          proporcion=proporcion)
             if caja:
                 cajas.append((x + caja[0], y + caja[1], caja[2], caja[3]))
         lado *= 1.4
@@ -198,8 +206,45 @@ def _semillas_de_tinta(suave, lado_min, lado_max):
     return semillas, tinta
 
 
-def _rayos(borde, cx, cy, desde, hasta):
-    """Primer punto de arista en cada una de las direcciones, desde el centro de la tinta."""
+def _semillas_oscuras(suave, lado_min, lado_max, semillas, tinta):
+    """Trazos oscuros sobre una cara que no es clara, como la gris de una operación.
+
+    Una cara gris junto a la mesa y a caras blancas queda por debajo de la media local y no da
+    agujeros en la máscara clara. Aquí se exige contraste fuerte con su entorno inmediato, del
+    tamaño de una cara, tinta oscura de verdad y una cara uniforme alrededor del trazo: la veta
+    de la mesa, el cartón impreso o un cable sobre fondo variado no cumplen lo último.
+    """
+    anillo = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    oscuro = cv2.adaptiveThreshold(suave, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
+                                   max(3, int(lado_min) | 1), CONTRASTE_TINTA)
+    cuantos, etiquetas, estadisticas, centros = cv2.connectedComponentsWithStats(oscuro, 8)
+    for n in range(1, cuantos):
+        x, y, w, h, area = estadisticas[n]
+        largo = max(w, h)
+        if not lado_min * .5 <= largo <= lado_max * .8 or area < 10:
+            continue
+        cx, cy = centros[n]
+        if any(np.hypot(cx - sx, cy - sy) <= sr for sx, sy, sr in semillas):
+            continue
+        trazo = etiquetas[y:y + h, x:x + w] == n
+        if float(suave[y:y + h, x:x + w][trazo].mean()) > TINTA_OSCURA:
+            continue
+        y0, x0 = max(0, y - 4), max(0, x - 4)
+        propio = (etiquetas[y0:y + h + 4, x0:x + w + 4] == n).astype(np.uint8)
+        alrededor = (cv2.dilate(propio, anillo) > 0) & (propio == 0) & (oscuro[y0:y + h + 4, x0:x + w + 4] == 0)
+        if not alrededor.any() or float(suave[y0:y + h + 4, x0:x + w + 4][alrededor].std()) > ANILLO_UNIFORME:
+            continue
+        semillas.append((float(cx), float(cy), largo / 2))
+        tinta[y:y + h, x:x + w][trazo] = 255
+    return semillas, tinta
+
+
+def _rayos(borde, cx, cy, desde, hasta, vecinas=()):
+    """Primer punto de arista en cada una de las direcciones, desde el centro de la tinta.
+
+    Con `vecinas`, el rayo también se detiene donde queda más cerca de otra tinta que de la
+    suya: dos caras contiguas sin arista entre ellas se reparten por la mediatriz.
+    """
     alto, ancho = borde.shape
     puntos = []
     for dx, dy in DIRECCIONES:
@@ -208,41 +253,99 @@ def _rayos(borde, cx, cy, desde, hasta):
             x, y = int(round(cx + dx * r)), int(round(cy + dy * r))
             if not (0 <= x < ancho and 0 <= y < alto):
                 break
-            if borde[y, x]:
+            if borde[y, x] or any(np.hypot(x - vx, y - vy) < r for vx, vy in vecinas):
                 puntos.append((x, y))
                 break
             r += 1
     return puntos
 
 
-def _caras_por_semilla(gris, lado_min, lado_max, tinta_minima=0.):
+def _caras_por_semilla(gris, lado_min, lado_max, tinta_minima=0., proporcion=.5, separar=False,
+                       esquinas=None):
     """La cara que rodea cada mancha de tinta, hasta la primera arista en cada dirección.
 
     Un hueco en la arista entre una cara blanca y un bloque blanco solo desvía un rayo, en vez
     de derramar la región entera. La cara no puede medir más que `ALCANCE_TINTA` veces la tinta,
     y con `tinta_minima` se descarta la que apenas tiene tinta: un punto suelto, no un símbolo.
+    Con `separar`, las tintas de tamaño parecido y del tamaño de un símbolo, no motas, se
+    reparten la superficie que comparten. En `esquinas` se apunta el cuadrilátero de cada caja,
+    que es la cara girada, para enderezarla antes de leerla.
     """
     suave = cv2.GaussianBlur(gris, (3, 3), 0)
     semillas, tinta = _semillas_de_tinta(suave, lado_min, lado_max)
+    if separar:
+        semillas, tinta = _semillas_oscuras(suave, lado_min, lado_max, semillas, tinta)
     borde = _aristas(suave, .33, .66)
     borde[cv2.dilate(tinta, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0] = 0
     cajas = []
     for cx, cy, radio in semillas:
-        puntos = _rayos(borde, cx, cy, radio + 2, min(lado_max * .8, radio * ALCANCE_TINTA))
+        vecinas = [(vx, vy) for vx, vy, vr in semillas if separar and radio >= lado_min / 2
+                   and (vx, vy) != (cx, cy) and vr >= max(.5 * radio, lado_min / 2)
+                   and np.hypot(vx - cx, vy - cy) <= 2 * radio * ALCANCE_TINTA]
+        puntos = _rayos(borde, cx, cy, radio + 2, min(lado_max * .8, radio * ALCANCE_TINTA), vecinas)
         if len(puntos) < RAYOS_MINIMOS:
             continue
         (rcx, rcy), (rw, rh), angulo = cv2.minAreaRect(np.array(puntos, np.float32))
         largo, corto = max(rw, rh), min(rw, rh)
-        if not lado_min <= largo <= min(lado_max, 2 * radio * ALCANCE_TINTA) or corto < .5 * largo:
+        if not lado_min <= largo <= min(lado_max, 2 * radio * ALCANCE_TINTA) or corto < proporcion * largo:
             continue
         if np.hypot(rcx - cx, rcy - cy) > .35 * largo:
             continue
-        esquinas = cv2.boxPoints(((rcx, rcy), (rw, rh), angulo)).astype(np.int32)
-        x, y, w, h = cv2.boundingRect(esquinas)
+        esquinas_cara = cv2.boxPoints(((rcx, rcy), (rw, rh), angulo))
+        x, y, w, h = cv2.boundingRect(esquinas_cara.astype(np.int32))
         if tinta_minima and (tinta[max(0, y):y + h, max(0, x):x + w] > 0).mean() < tinta_minima:
             continue
         cajas.append((x, y, w, h))
+        if esquinas is not None:
+            esquinas[(x, y, w, h)] = esquinas_cara.tolist()
     return cajas
+
+
+def repartir_tinta(gris, lado_min, lado_max, caras):
+    """Cada trazo de tinta, para la cara cuyo cuadrilátero lo contiene; si cae en varias, para la
+    de centro más cercano. Añade a cada cara sus `trazos`, que es lo único que debe leerse.
+
+    La tinta es lo claramente más oscuro que su entorno inmediato, sea la cara blanca, de madera
+    o gris. Un trazo que sobresale de la cara, o se pega a su borde, es una arista o un objeto
+    vecino, y uno mucho menor que el mayor de su cara es una mota: no forman parte del símbolo.
+    """
+    suave = cv2.GaussianBlur(gris, (3, 3), 0)
+    tinta = cv2.adaptiveThreshold(suave, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
+                                  max(3, int(lado_min) | 1), CONTRASTE_TINTA)
+    cuantos, etiquetas, estadisticas, _ = cv2.connectedComponentsWithStats(tinta, 8)
+    contornos = []
+    for n in range(1, cuantos):
+        x, y, w, h, _ = estadisticas[n]
+        externo, _ = cv2.findContours((etiquetas[y:y + h, x:x + w] == n).astype(np.uint8),
+                                      cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contornos += [c + [x, y] for c in externo]
+    figuras = []
+    for c in caras:
+        esquinas = np.float32(c['esquinas'])
+        centro = esquinas.mean(0)
+        figuras.append((centro + (esquinas - centro) * MARGEN_CARA, centro))
+    for c in caras:
+        c['trazos'] = []
+    for contorno in contornos:
+        momentos = cv2.moments(contorno)
+        if momentos['m00'] < 6:
+            continue
+        punto = (momentos['m10'] / momentos['m00'], momentos['m01'] / momentos['m00'])
+        dueñas = [(np.hypot(punto[0] - centro[0], punto[1] - centro[1]), n)
+                  for n, (figura, centro) in enumerate(figuras)
+                  if cv2.pointPolygonTest(figura, punto, False) >= 0]
+        if not dueñas:
+            continue
+        figura = figuras[min(dueñas)[1]][0]
+        dentro = np.mean([cv2.pointPolygonTest(figura, (float(px), float(py)), False) > 0
+                          for px, py in contorno.reshape(-1, 2)])
+        if dentro >= TRAZO_DENTRO:
+            caras[min(dueñas)[1]]['trazos'].append(contorno.reshape(-1, 2))
+    for c in caras:
+        areas = [cv2.contourArea(t) for t in c['trazos']]
+        c['trazos'] = [t.tolist() for t, area in zip(c['trazos'], areas)
+                       if area >= TRAZO_MINIMO * max(areas)]
+    return caras
 
 
 def _caras_planas(altura_mm, lado_min, lado_max, mmpp):
@@ -280,22 +383,32 @@ def _sin_fusiones(cajas):
     return salida
 
 
-def _sin_contenidas(cajas):
-    """Quita la caja que cae dentro de otra mayor: un detalle de tinta dentro de la cara."""
+def _sin_contenidas(cajas, preferidas=()):
+    """Quita la caja que cae dentro de otra mayor: un detalle de tinta dentro de la cara. Una caja
+    preferida no la quita una que no lo es."""
     return [c for c in cajas
-            if not any(o is not c and o[2] * o[3] > c[2] * c[3] and _dentro(c, o) for o in cajas)]
+            if not any(o is not c and o[2] * o[3] > c[2] * c[3] and _dentro(c, o)
+                       and (c not in preferidas or o in preferidas) for o in cajas)]
 
 
-def caras_en_imagen(gris, lado_min, lado_max, consenso=True):
+def caras_en_imagen(gris, lado_min, lado_max, consenso=True, esquinas=None):
     """Caras de ficha en una imagen en gris, con la ventana de tamaño en píxeles.
 
     Con `consenso`, la ruta sin escala física: tamaños parecidos, sin puntos de tinta sueltos,
     sin cajas que abarquen dos caras ni cajas dentro de otra.
     """
-    por_semilla = _nms(_caras_por_semilla(gris, lado_min, lado_max, TINTA_MINIMA if consenso else 0.))
-    cajas = por_semilla + _caras_entre_aristas(gris, lado_min, lado_max)
     if consenso:
-        cajas = _sin_contenidas(_sin_fusiones(_nms(_consenso(cajas, por_semilla), .7)))
+        por_semilla = _nms(_caras_por_semilla(gris, lado_min, lado_max, TINTA_MINIMA, PROPORCION_RGB, True,
+                                              esquinas))
+        cajas = por_semilla + _caras_entre_aristas(gris, lado_min, lado_max, PROPORCION_RGB)
+    else:
+        por_semilla = _nms(_caras_por_semilla(gris, lado_min, lado_max))
+        cajas = por_semilla + _caras_entre_aristas(gris, lado_min, lado_max)
+    if consenso:
+        # Una cara con su propia tinta prevalece sobre una región de aristas que la abarque.
+        cajas = _sin_contenidas(_sin_fusiones(_nms(_consenso(cajas, por_semilla), .7, por_semilla)),
+                                por_semilla)
+        return _nms(cajas, preferidas=por_semilla)
     return _nms(cajas)
 
 
@@ -464,9 +577,16 @@ def localizar_rgb(color):
         return [], [], diagnostico
     gris = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
     corto = min(gris.shape)
+    esquinas = {}
     candidatos = [{'caja': [int(x), int(y), int(w), int(h)], 'centro': [x + w / 2, y + h / 2],
-                   'z_mm': None, 'lado_mm': None, 'origen': 'rgb'}
-                  for x, y, w, h in caras_en_imagen(gris, LADO_MIN_RGB * corto, LADO_MAX_RGB * corto)]
+                   'z_mm': None, 'lado_mm': None, 'origen': 'rgb', 'esquinas': esquinas.get((x, y, w, h))}
+                  for x, y, w, h in caras_en_imagen(gris, LADO_MIN_RGB * corto, LADO_MAX_RGB * corto,
+                                                    esquinas=esquinas)]
+    for c in candidatos:
+        if not c['esquinas']:
+            x, y, w, h = c['caja']
+            c['esquinas'] = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+    repartir_tinta(gris, LADO_MIN_RGB * corto, LADO_MAX_RGB * corto, candidatos)
     diagnostico['sin_profundidad'] = len(candidatos)
     if not candidatos:
         diagnostico['motivo'] = 'ninguna región con forma de cara'

@@ -34,7 +34,23 @@ Las medidas próximas de distintas cámaras se agrupan y se asocian de forma con
 | Oculta | La profundidad muestra una superficie delante de la posición anterior. |
 | Sin observación reciente | No se pudo localizar de nuevo. Puede estar tapada, haberse movido o haber sido retirada. |
 
-Una sola vista sin profundidad puede reconocer una ficha ya conocida, pero no confirma su nueva posición 3D. Si no hay geometría suficiente, queda pendiente. Un desplazamiento grande o una asociación ambigua puede exigir reiniciar el seguimiento; no se inventa continuidad entre fichas iguales.
+**Qué basta para confirmar una cara vista por una sola cámara sin profundidad** (`seguir_con_una_vista`): que su pieza se haya situado en 3D por triangulación o profundidad hace menos de 10 s (`MONOCULAR_S`); que ninguna otra observación de esta captura la reclame; que la cara reproyecte sobre esa posición a menos de `max(5 px, 1/4 del lado corto de la caja)`, sin otra pieza a menos de 2 px de diferencia; y que se lea el mismo símbolo que la pieza ya tenía. Además, en esa misma captura otra parte del montaje tiene que situarse en 3D (por triangulación o profundidad): si solo queda una cámara conectada, o las demás no ven nada, no hay ancla y todo queda pendiente. Una sola vista nunca crea una pieza ni cambia su símbolo, y no detecta un desplazamiento a lo largo de su propio rayo: por eso caduca. La interfaz la marca como «una sola vista, sin corroboración independiente». Una cara que nunca vieron dos cámaras queda sin situar. Un desplazamiento grande o una asociación ambigua puede exigir reiniciar el seguimiento; no se inventa continuidad entre fichas iguales.
+
+## Reglas, inspiradas en PARTE
+
+No es una red Rete ni tiene sus garantías temporales: son reglas explícitas que se reevalúan sobre la captura sincronizada de cada ciclo, con memoria en las pistas. Correspondencia con lo pedido:
+
+| Regla | Dónde |
+| --- | --- |
+| Asociar observaciones de la misma cara por posición, tiempo y geometría, no por símbolo | `sincronizar` (120 ms), `localizar` (triangulación con error de reproyección acotado y asignación única), `asociar_restantes` |
+| Partes complementarias vistas por cámaras distintas | cada pieza se sitúa por separado; la cadena se reconstruye con todas (`reconstruir`) |
+| Mantener alternativas si los símbolos se contradicen | `_votar`: dos lecturas distintas dejan la pieza `ambigua` con sus candidatos, sin mayoría |
+| Una pieza no visible es falta de evidencia | `no_observada` u `oculta`; la pista se conserva y solo se borra si dos cámaras ven vacío su sitio durante 1.5 s |
+| Excluir lo caducado | cuadros de más de 0.75 s fuera; una pieza sin lectura de los últimos 0.35 s no cuenta como actual |
+| Nueva versión cuando cambia la evidencia | `Lector.version_de`: programa, piezas y estado; un veredicto de Scala solo se acepta para su versión |
+| Confirmar solo con condiciones explícitas | `puede_ejecutar`: estable 0.8 s, compatible, aridad correcta, sin `<sin leer>` |
+
+La identidad de cada cara (pistas) y sus relaciones (el grafo de `adjacency`) son estructuras separadas: el grafo admite uniones en T, ciclos y saltos aunque la fusión hoy los deje pendientes por falta de evidencia de sentido.
 
 `adjacency.py` reconstruye una cadena candidata usando el paso medido y las posiciones de los parámetros. La fusión rechaza ramificaciones, ciclos, piezas aisladas, sentidos casi empatados y cantidades de parámetros incompatibles con las operaciones. Se conserva la semántica de operaciones como `CMP`, con uno o dos operandos.
 

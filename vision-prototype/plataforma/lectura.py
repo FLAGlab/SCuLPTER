@@ -2,8 +2,13 @@ import cv2
 import numpy as np
 
 from clasificador_simbolos import SIN_LEER, aceptar_candidatos
-from plataforma.localizacion import localizar
+from plataforma.localizacion import localizar, localizar_rgb
 from reconstruir import analizar, reducir_resolucion
+
+# Provisional, medido el 2026-10-13 con webcams: las lecturas ciertas dieron 0.87 o más y las
+# falsas, sobre vistas sin ninguna cara, hasta 0.73. Con tan pocas referencias, ante la duda
+# la cara queda sin leer.
+UMBRAL_CARAS = 0.80
 
 
 def leer_cuadro(cuadro, vocabulario):
@@ -39,13 +44,60 @@ def _por_contornos(cuadro, vocabulario):
     return imagen, lecturas, [[x * sx, y * sy, w * sx, h * sy] for x, y, w, h in tinta]
 
 
+def tinta_de(cuadro, trazos):
+    """Solo la tinta de una cara, sobre blanco y con margen: lo que la etapa 2 debe comparar.
+
+    Se copian los píxeles originales con dos de holgura alrededor de cada trazo, para que el
+    borde suavizado no dependa de dónde cortó la máscara: la normalización decide qué es tinta.
+    """
+    if not trazos:
+        return None
+    contornos = [np.int32(t) for t in trazos]
+    x, y, w, h = cv2.boundingRect(np.vstack(contornos))
+    mascara = np.zeros(cuadro.shape[:2], np.uint8)
+    cv2.fillPoly(mascara, contornos, 255)
+    mascara = cv2.dilate(mascara, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    salida = np.full_like(cuadro, 255)
+    salida[mascara > 0] = cuadro[mascara > 0]
+    m = max(w, h)
+    return cv2.copyMakeBorder(salida[y:y + h, x:x + w], m, m, m, m, cv2.BORDER_CONSTANT,
+                              value=(255, 255, 255))
+
+
+def _por_caras(cuadro, vocabulario):
+    """Ruta sin profundidad por caras: cada cara se lee solo con su propia tinta."""
+    imagen = reducir_resolucion(cuadro)
+    candidatos, _, diagnostico = localizar_rgb(cuadro)
+    lecturas = []
+    for candidato in candidatos[:80]:
+        x, y, w, h = candidato['caja']
+        tinta = tinta_de(cuadro, candidato.get('trazos'))
+        centro = np.float32(candidato['esquinas']).mean(0) if candidato.get('esquinas') else (x + w / 2, y + h / 2)
+        recorte = tinta if tinta is not None else cuadro[max(0, y):y + h, max(0, x):x + w]
+        lectura = _observar(recorte, centro[0], centro[1], w, h, vocabulario,
+                            extra={'origen': 'rgb', 'esquinas': candidato.get('esquinas')})
+        if lectura['token'] != SIN_LEER and lectura['candidatos'][0]['puntaje'] < UMBRAL_CARAS:
+            lectura['token'] = lectura['observacion']['lexema'] = SIN_LEER
+        lectura['observacion']['caja'] = [float(x), float(y), float(w), float(h)]
+        lectura.update({'x': x + w / 2, 'y': y + h / 2, 'w': w, 'h': h})
+        lecturas.append(lectura)
+    return imagen, lecturas, [], {**diagnostico, 'etapa': 'caras'}
+
+
 def leer(cuadro, vocabulario, profundidad=None, intrinsecos=None, mesa=None):
     """Imagen reducida, lecturas y la tinta sin resolver, las tres en coordenadas del original."""
     return leer_detallado(cuadro, vocabulario, profundidad, intrinsecos, mesa)[:3]
 
 
-def leer_detallado(cuadro, vocabulario, profundidad=None, intrinsecos=None, mesa=None):
-    """Como `leer`, y además el diagnóstico de la localización."""
+def leer_detallado(cuadro, vocabulario, profundidad=None, intrinsecos=None, mesa=None,
+                   ruta_rgb='contornos'):
+    """Como `leer`, y además el diagnóstico de la localización.
+
+    Sin profundidad, `ruta_rgb` elige entre la ruta por contornos de siempre y la ruta por caras;
+    la segunda solo se usa si se pide.
+    """
+    if profundidad is None and ruta_rgb == 'caras':
+        return _por_caras(cuadro, vocabulario)
     imagen = reducir_resolucion(cuadro)
     candidatos, objetos, diagnostico = localizar(cuadro, profundidad, intrinsecos, mesa=mesa)
     if profundidad is None:

@@ -2,13 +2,16 @@
 
 import unittest
 
+import cv2
+
 import numpy as np
 
 from tests.entorno import vocabulario as preparar_vocabulario
 from plataforma import guiones
 from plataforma.escena_virtual import Camara, centro_de, escenario_de, olvidar_vistas
 from plataforma.geometria_fusion import modelo, proyectar
-from plataforma.localizacion import _sin_contenidas, _sin_fusiones, localizar, mm_por_px
+from plataforma.localizacion import (LADO_MAX_RGB, LADO_MIN_RGB, _semillas_oscuras, _sin_contenidas,
+                                     _sin_fusiones, localizar, localizar_rgb, mm_por_px)
 from plataforma.mesa import Mesa, ajustar_plano
 from reconstruir import analizar, reducir_resolucion
 
@@ -346,6 +349,62 @@ class RutaRgbTest(unittest.TestCase):
     def test_un_detalle_dentro_de_una_cara_se_descarta(self):
         self.assertEqual(_sin_contenidas([(0, 0, 40, 40), (10, 10, 8, 8), (50, 0, 40, 40)]),
                          [(0, 0, 40, 40), (50, 0, 40, 40)])
+
+    @staticmethod
+    def escena():
+        """Dos caras blancas contiguas, sin arista entre ellas, y una cara gris con un trazo negro."""
+        rng = np.random.default_rng(0)
+        imagen = np.clip(np.full((480, 640, 3), 200.) + rng.normal(0, 2, (480, 640, 3)), 0, 255).astype(np.uint8)
+        cv2.rectangle(imagen, (200, 200), (320, 260), (240, 240, 240), -1)
+        cv2.putText(imagen, 'a', (215, 248), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (30, 30, 200), 4)
+        cv2.putText(imagen, '2', (275, 248), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (30, 30, 200), 4)
+        cv2.rectangle(imagen, (400, 200), (460, 240), (110, 110, 110), -1)
+        cv2.line(imagen, (412, 220), (448, 220), (20, 20, 20), 5)
+        return imagen
+
+    def centros(self, imagen):
+        return [np.vstack([np.float32(t) for t in c['trazos']]).mean(0)
+                for c in localizar_rgb(imagen)[0] if c.get('trazos')]
+
+    def test_caras_contiguas_se_reparten_y_cada_una_lee_solo_su_tinta(self):
+        centros = self.centros(self.escena())
+        for x, y in ((228, 236), (288, 236)):
+            self.assertEqual(sum(np.hypot(cx - x, cy - y) < 12 for cx, cy in centros), 1, centros)
+
+    def test_una_cara_gris_conserva_su_trazo_oscuro(self):
+        centros = self.centros(self.escena())
+        self.assertTrue(any(np.hypot(cx - 430, cy - 220) < 6 for cx, cy in centros), centros)
+
+    def test_un_trazo_oscuro_sobre_fondo_variado_no_es_tinta(self):
+        yy, xx = np.mgrid[0:480, 0:640]
+        fondo = np.where((yy // 6 + xx // 6) % 2, 170, 90).astype(np.uint8)
+        cv2.line(fondo, (300, 240), (336, 240), 10, 5)
+        lo, hi = LADO_MIN_RGB * 480, LADO_MAX_RGB * 480
+        semillas, _ = _semillas_oscuras(fondo, lo, hi, [], np.zeros_like(fondo))
+        self.assertFalse(any(np.hypot(x - 318, y - 240) < 10 for x, y, _ in semillas))
+
+    def test_la_lectura_por_caras_solo_se_usa_si_se_pide(self):
+        from plataforma.lectura import leer_detallado
+
+        class Vacio:
+            def puntuar(self, recorte):
+                return []
+        imagen = self.escena()
+        self.assertEqual(leer_detallado(imagen, Vacio())[3]['etapa'], 'contornos')
+        self.assertEqual(leer_detallado(imagen, Vacio(), ruta_rgb='caras')[3]['etapa'], 'caras')
+
+    def test_un_parecido_flojo_queda_sin_leer_en_la_ruta_por_caras(self):
+        from plataforma.lectura import UMBRAL_CARAS, leer_detallado
+
+        class Flojo:
+            def puntuar(self, recorte):
+                return [{'lexema': 'PUSH', 'nombre': 'PUSH', 'puntaje': UMBRAL_CARAS - .05},
+                        {'lexema': 'ADD', 'nombre': 'ADD', 'puntaje': .1}]
+        lecturas = leer_detallado(self.escena(), Flojo(), ruta_rgb='caras')[1]
+        self.assertTrue(lecturas)
+        self.assertTrue(all(l['token'] == '<sin leer>' for l in lecturas))
+        self.assertTrue(all(l['candidatos'][0]['puntaje'] == UMBRAL_CARAS - .05 for l in lecturas),
+                        'el puntaje original se conserva')
 
 
 if __name__ == '__main__':

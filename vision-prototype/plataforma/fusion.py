@@ -38,6 +38,7 @@ VENTANA_SINCRONIA_S = .12
 TOLERANCIA_HUECO_S = .35
 RESPALDO_MINIMO = 0.5
 OLVIDO_S = 1.5
+MONOCULAR_S = 10.0
 HUELLA_MM = 24.0
 REJILLA_HUELLA = 3
 PX_POR_MM_TESTIGO = 2.0
@@ -389,6 +390,44 @@ def asociar_restantes(grupos, usadas, obs, modelos):
             mejores[0][1]['obs'].append(n)
             usadas.add(n)
 
+def seguir_con_una_vista(pistas, grupos, usadas, obs, modelos, instante):
+    """Grupos de una sola cámara para piezas ya situadas en 3D.
+
+    Una cara que solo ve una cámara no se puede situar, pero sí reconocer como la misma pieza
+    si esa pieza se situó por triangulación o profundidad hace menos de MONOCULAR_S, ninguna
+    observación de esta captura la ha reclamado, la cara reproyecta sobre ella sin ambigüedad y
+    se lee el mismo símbolo. Además, en esta misma captura otra parte del montaje tiene que
+    haberse situado en 3D: si solo queda una cámara, o las demás no ven nada, no hay ancla y
+    todo queda pendiente. Así no se crea ninguna pieza ni se cambia ningún símbolo, y una
+    pieza movida a lo largo del rayo de esa cámara no se detecta: por eso caduca.
+    """
+    if not grupos:
+        return []
+    libres = [p for p in pistas if p['lexema'] != SIN_LEER
+              and instante - p.get('situada', -np.inf) <= MONOCULAR_S
+              and all(np.linalg.norm(g['posicion'] - p['posicion']) >= 8 for g in grupos)]
+    nuevos = []
+    for cam, m in modelos.items():
+        indices = [i for i, o in enumerate(obs) if i not in usadas and o['camara'] == cam]
+        costes = np.full((len(libres), len(indices)), np.inf)
+        for i, p in enumerate(libres):
+            uv, z = proyectar(m, [p['posicion']])
+            if z[0] <= 0:
+                continue
+            for j, n in enumerate(indices):
+                caja = obs[n]['caja']
+                if ganador(obs[n]['candidatos']) != p['lexema']:
+                    continue
+                distancia = np.linalg.norm(uv[0] - [obs[n]['x'], obs[n]['y']])
+                if distancia <= max(5., .25 * min(caja[2], caja[3])):
+                    costes[i, j] = distancia
+        for i, j in asociar_unicos(costes, 1e9, 2):
+            n = indices[j]
+            nuevos.append({'posicion': np.asarray(libres[i]['posicion'], float).copy(), 'obs': [n],
+                           'sensores': {cam}, 'metodo': 'una_vista'})
+            usadas.add(n)
+    return nuevos
+
 # Testigos de un sitio de la mesa, calculados solo con los cuadros de esta captura.
 def encuadran(cuadros, punto):
     cuantas = 0
@@ -525,6 +564,7 @@ class Fusion:
                     obs.append({**o, 'camara': c['id'], 'secuencia': c['secuencia'], 'instante': c['instante']})
             grupos, usadas = localizar(obs, modelos, cuadros, en_volumen)
             asociar_restantes(grupos, usadas, obs, modelos)
+            grupos += seguir_con_una_vista(list(self.pistas.values()), grupos, usadas, obs, modelos, instante)
             pistas = list(self.pistas.values())
             costes = np.full((len(grupos), len(pistas)), np.inf)
             for i, g in enumerate(grupos):
@@ -549,6 +589,8 @@ class Fusion:
                 pista['posicion'] = g['posicion']
                 pista['ultima'] = max(obs[n]['instante'] for n in g['obs'])
                 pista['metodo'] = g['metodo']
+                if g['metodo'] != 'una_vista':
+                    pista['situada'] = pista['ultima']
                 pista['sensores'] = sorted(g['sensores'])
                 pista['lecturas'] = {obs[n]['camara']: obs[n] for n in g['obs']}
                 self._votar(pista)

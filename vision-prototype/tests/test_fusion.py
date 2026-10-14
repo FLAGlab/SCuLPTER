@@ -110,6 +110,48 @@ class FusionTest(unittest.TestCase):
         self.assertFalse(r['estable'])
         self.assertEqual(len(r['piezas']), 3)
 
+    def tapar(self, para_lado, desde=11, hasta=25, lado=None):
+        config = con_area(CONFIG, self.puntos)
+        for n in range(desde, hasta):
+            t = 10. + n * .1
+            r = self.fusion.actualizar([fuente('arriba', [-100, -70, 600], self.puntos, t, secuencia=n + 1),
+                                        fuente('lado', [100, 70, 600], lado or para_lado, t, secuencia=n + 1)],
+                                       config, t)
+        return r
+
+    def test_una_cara_tapada_para_una_camara_sigue_con_la_otra(self):
+        ids = [p['id'] for p in self.estable()['piezas']]
+        r = self.tapar([self.puntos[0], self.puntos[2]])
+        self.assertTrue(puede_ejecutar(r), r['avisos'])
+        self.assertEqual(ids, [p['id'] for p in r['piezas']])
+        a = next(p for p in r['piezas'] if p['lexema'] == 'a')
+        self.assertEqual((a['metodo'], a['camaras']), ('una_vista', ['arriba']))
+
+    def test_una_sola_vista_no_cambia_el_simbolo(self):
+        self.estable()
+        b = fuente('arriba', [-100, -70, 600], [self.puntos[0], ('b', self.puntos[1][1]), self.puntos[2]], 11.1, secuencia=12)
+        c = fuente('lado', [100, 70, 600], [self.puntos[0], self.puntos[2]], 11.1, secuencia=12)
+        r = self.fusion.actualizar([b, c], con_area(CONFIG, self.puntos), 11.1)
+        self.assertFalse(puede_ejecutar(r))
+        self.assertEqual(next(p for p in r['piezas'] if p['lexema'] == 'a')['estado'], 'no_observada')
+
+    def test_una_sola_vista_no_crea_piezas(self):
+        a = fuente('arriba', [-100, -70, 600], self.puntos, 10.)
+        b = fuente('lado', [100, 70, 600], [], 10.)
+        r = self.fusion.actualizar([a, b], con_area(CONFIG, self.puntos), 10.)
+        self.assertEqual(r['piezas'], [])
+
+    def test_una_camara_tapada_entera_no_sostiene_nada(self):
+        self.estable()
+        r = self.tapar([], lado=[])
+        self.assertFalse(puede_ejecutar(r))
+        self.assertTrue(all(p['estado'] != 'confirmada' for p in r['piezas']))
+
+    def test_la_evidencia_de_una_sola_vista_caduca(self):
+        self.estable()
+        r = self.tapar([self.puntos[0], self.puntos[2]], 11, 125)
+        self.assertFalse(puede_ejecutar(r))
+
     def test_conflicto_entre_camaras_no_se_resuelve_por_mayoria(self):
         p = [('PUSH', [0,0,20])]
         a = fuente('a', [-100,-70,600], p, profundidad=True)

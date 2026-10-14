@@ -18,8 +18,9 @@ from plataforma.vocabulario import Vocabulario, OPERACIONES
 
 
 class Estado:
-    def __init__(self, raiz, datos):
+    def __init__(self, raiz, datos, ruta_rgb='contornos'):
         self.raiz, self.datos = Path(raiz), Path(datos)
+        self.ruta_rgb = ruta_rgb
         self.lock = threading.RLock()
         self.sesion = uuid.uuid4().hex
         self.vocabulario = Vocabulario(raiz, datos)
@@ -101,7 +102,7 @@ class Estado:
             imagen, lecturas, tinta, diagnostico = leer_detallado(
                 cuadro.color, self.vocabulario, cuadro.profundidad,
                 self.config['intrinsecos'].get(camara.config['id']) or cuadro.intrinsecos,
-                mesa=self.mesas.get(camara.config['id']))
+                mesa=self.mesas.get(camara.config['id']), ruta_rgb=self.ruta_rgb)
         else:
             imagen, lecturas, tinta = reducir_resolucion(cuadro.color), [], []
             diagnostico = {'etapa': 'profundidad', 'motivo': 'esta cámara solo aporta profundidad'}
