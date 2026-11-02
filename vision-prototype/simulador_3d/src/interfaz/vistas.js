@@ -52,7 +52,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
         <div class="frame-label">Lecturas, fusión y programa candidato</div><div class="frame" id="gemelo-conjunto"></div>
       </section>
       <section data-vista="camaras" hidden><div id="laboratorio-vision"></div><p id="camaras-vacio" class="canvas-note">Añade una cámara para comenzar.</p><div id="camaras-lista"></div><details class="cam-detalle"><summary>Posiciones</summary><div id="mapa-camaras"></div></details><details class="cam-detalle"><summary>Evidencia de la lectura</summary><div class="frame" id="evidencia-lectura"></div></details></section>
-      <section data-vista="calibracion" hidden><div class="frame-label">Captura actual</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
+      <section data-vista="calibracion" hidden><div class="frame-label">Vista limpia · Capturar tablero comprueba las esquinas</div><div class="frame captura-frame"><img id="cal-imagen" alt="Vista de la cámara seleccionada" hidden><p id="cal-vacio" class="nota">Conecta una cámara y selecciona su vista.</p></div><div id="cal-grafica" hidden></div></section>
       <section data-vista="simbolos" hidden><div class="frame-label">Preparación del ensayo</div><div class="frame" id="ensayo-vocabulario"></div><div id="simbolos-lista"></div></section>
       <section data-vista="piezas" hidden><div class="frame-label">Piezas que computan</div><div class="frame pieces">${MODELOS.slice(0,4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><div class="frame-label">Piezas de estructura</div><div class="frame pieces">${MODELOS.slice(4).map(([archivo, nombre]) => `<button class="pcard" data-modelo="${archivo}"><div class="pimg"><img hidden data-miniatura="${archivo}" alt="${nombre}"></div><div class="pname">${nombre}</div></button>`).join('')}</div><p class="canvas-note">Las piezas de estructura sostienen la escultura. No cambian el programa.</p><div class="frame-label" id="modelo-titulo"></div><div class="frame" id="modelo-visor" aria-label="Vista 3D de la pieza"></div></section>
     </div>
@@ -66,8 +66,8 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
         ${plegable('Lecturas por cámara', '<div id="cam-lecturas-panel"></div><p class="nota">Los puntajes miden similitud, no probabilidad. Una cámara que no ve una ficha no vota en su contra.</p>')}
       </div>
       <div data-prop="calibracion" hidden>
-        ${seccion('Tablero', `<form id="calibracion-form">${propiedad('Cámara','<select class="fld" name="id" id="cal-camara"></select>')}${propiedad('Columnas','<input class="fld" name="columnas" type="number" min="3" max="20" value="9" required>')}${propiedad('Filas','<input class="fld" name="filas" type="number" min="3" max="20" value="6" required>')}${propiedad('Cuadro (mm)','<input class="fld" name="mm" type="number" min="1" max="200" step="0.1" value="25" required>')}<p class="nota">Cuenta las esquinas interiores. Mide el tablero impreso.</p><button class="accion" type="submit">Reiniciar capturas</button></form>`)}
-        ${seccion('Capturas', '<p id="cal-estado"></p><div class="acciones"><button class="accion" id="cal-capturar">Capturar tablero</button><button class="accion primaria" id="cal-calcular">Calcular</button></div><p class="nota">Al menos 15 vistas distintas, con el tablero en varios ángulos y posiciones.</p>')}
+        ${seccion('Tablero', `<form id="calibracion-form">${propiedad('Cámara','<select class="fld" name="id" id="cal-camara"></select>')}${propiedad('Esquinas en columnas','<input class="fld" name="columnas" type="number" min="3" max="20" value="9" required>')}${propiedad('Esquinas en filas','<input class="fld" name="filas" type="number" min="3" max="20" value="6" required>')}${propiedad('Cuadro (mm)','<input class="fld" name="mm" type="number" min="1" max="200" step="0.1" value="25" required>')}<p class="nota">Cuenta las esquinas interiores. Mide el tablero impreso.</p><button class="accion" type="submit">Reiniciar capturas</button></form>`)}
+        ${seccion('Capturas', '<p id="cal-estado"></p><div class="acciones"><button class="accion" id="cal-capturar">Capturar tablero</button><button class="accion primaria" id="cal-calcular">Calcular</button></div><p id="cal-calculo" role="status" aria-live="polite"></p><p class="nota">Al menos 15 vistas distintas, con el tablero en varios ángulos y posiciones.</p>')}
         ${seccion('Error de reproyección', '<div id="cal-error"></div><p class="nota">La calibración es buena por debajo de 1 px. Repite el registro si se mueve una cámara.</p>')}
         ${seccion('Posición común', '<button class="accion" id="cal-registrar">Registrar cámaras</button><p class="nota">Con una RealSense RGB y profundidad basta un tablero inmóvil. Con varias cámaras, todas deben ver el mismo tablero con igual origen y orientación.</p><div id="cal-resultados"></div>')}
       </div>
@@ -173,8 +173,18 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     } catch(e) { mensaje('No se pudieron cargar todas las miniaturas.', true); }
     finally { renderer.dispose(); miniaturasPendientes = false; }
   }
+  let calculandoCalibracion = false, calibrandoId = null;
+  // El modo de calibración se pide al servicio de forma explícita al entrar en la página o cambiar
+  // de cámara, y se abandona al salir: mientras dura, esa cámara no reconoce símbolos.
+  function modoCalibracion(id) {
+    if (id === calibrandoId) return;
+    const datos = datosFormulario('calibracion-form');
+    const anterior = calibrandoId; calibrandoId = id;
+    if (anterior) api('camaras/modo_calibracion', {...datos, id: anterior, activo: false}).catch(() => {});
+    if (id) api('camaras/modo_calibracion', {...datos, id, activo: true}).catch(e => { calibrandoId = null; mensaje(e.message, true); });
+  }
   async function api(ruta, datos) {
-    const respuesta = await fetch(base + '/api/' + ruta, { ...(datos ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) } : {}), signal: AbortSignal.timeout(ruta === 'estado' ? 1500 : 15000) });
+    const respuesta = await fetch(base + '/api/' + ruta, { ...(datos ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) } : {}), signal: AbortSignal.timeout(ruta === 'estado' ? 1500 : ruta === 'camaras/calcular' ? 120000 : 15000) });
     const resultado = await respuesta.json();
     if (!respuesta.ok) throw new Error(resultado.error || 'El servicio no pudo completar la solicitud.');
     return resultado;
@@ -396,21 +406,63 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   }
   function pintarCalibracion() {
     const c = estado?.camaras.find(c => c.id === $('cal-camara').value);
-    const img = $('cal-imagen'); img.hidden = !c?.secuencia; $('cal-vacio').hidden = !!c?.secuencia;
-    if (c?.secuencia && pagina === 'calibracion') img.src = `${base}/api/imagen/${c.id}?v=${c.secuencia}`;
-    $('cal-estado').textContent = c ? `${c.capturas} / 15 capturas mínimas · ${c.intrinsecos ? `Intrínsecos ${c.intrinsecos.origen === 'fabrica' ? 'de fábrica' : 'guardados'}${c.intrinsecos.rms != null ? ' · RMS ' + c.intrinsecos.rms.toFixed(3) + ' px' : ''}` : 'Sin calibración guardada'}` : 'Agrega una cámara en Cámaras.';
-    const rms = c?.intrinsecos?.rms;
-    $('cal-grafica').hidden = !c?.intrinsecos?.errores?.length;
-    if (c?.intrinsecos?.errores?.length) {
-      const valores = c.intrinsecos.errores, maximo = Math.max(1,...valores);
+    if (pagina === 'calibracion') modoCalibracion(c?.estado === 'conectada' ? c.id : null);
+    const cal = c?.calibracion || {}, det = cal.modo ? cal.deteccion : null;
+    const img = $('cal-imagen'); img.hidden = !det; $('cal-vacio').hidden = !!det;
+    // En calibración la imagen se pide sola en cuanto termina de cargar la anterior, sin esperar a
+    // la consulta de estado. Las esquinas van dibujadas en la propia imagen, así que siempre
+    // corresponden a su cuadro.
+    if (det && pagina === 'calibracion' && img.dataset.camara !== c.id) {
+      img.dataset.camara = c.id;
+      const pedir = () => { if (pagina === 'calibracion' && calibrandoId === img.dataset.camara) img.src = `${base}/api/imagen/${encodeURIComponent(img.dataset.camara)}/calibracion?t=${Date.now()}`; else delete img.dataset.camara; };
+      img.onload = () => setTimeout(pedir, 30);
+      img.onerror = () => setTimeout(pedir, 300);
+      pedir();
+    }
+    $('cal-vacio').textContent = c?.estado === 'conectada' ? 'Preparando la vista de calibración…' : 'Conecta una cámara y selecciónala aquí.';
+    const cob = cal.cobertura;
+    $('cal-estado').innerHTML = c ? [
+      det ? `<span class="${det.encontrado ? 'okc' : 'errc'}">${det.encontrado ? `Tablero encontrado · ${det.esperadas}/${det.esperadas} esquinas` : `Tablero no encontrado · se esperan ${det.esperadas} esquinas`}</span> · ${det.resolucion.join('×')} · detección ${(det.deteccion_s * 1000).toFixed(0)} ms` : '',
+      `${c.capturas} incluidas / 15 mínimas${cal.muestras?.some(m => m.excluida) ? ` · ${cal.muestras.filter(m => m.excluida).length} excluidas` : ''}`,
+      cob?.zonas ? `Cobertura: ${cob.zonas}/${cob.de} zonas de la imagen · ${Object.entries(cob.inclinaciones).map(([k, n]) => `${n} ${k}`).join(', ')}` : '',
+      c.intrinsecos ? `Intrínsecos ${c.intrinsecos.origen === 'fabrica' ? 'de fábrica' : 'guardados'}${c.intrinsecos.rms != null ? ' · RMS ' + c.intrinsecos.rms.toFixed(3) + ' px' : ''}` : 'Sin calibración guardada',
+    ].filter(Boolean).map(t => `<span class="nota" style="display:block">${t}</span>`).join('') : 'Agrega una cámara en Cámaras.';
+    const calculo = cal.ultimo_calculo;
+    if (calculo && !$('cal-calculo').dataset.local) {
+      $('cal-calculo').textContent = calculo.mensaje;
+      $('cal-calculo').className = calculo.estado === 'aceptada' ? 'okc' : calculo.estado === 'calculando' ? 'nota' : 'error';
+    }
+    $('cal-calcular').disabled = !!cal.calculando;
+    $('cal-calcular').textContent = cal.calculando ? 'Calculando…' : 'Calcular';
+    const medicion = c?.calibracion_diagnostico || c?.intrinsecos;
+    const rms = medicion?.rms;
+    $('cal-grafica').hidden = !medicion?.errores?.length;
+    if (medicion?.errores?.length) {
+      const valores = medicion.errores.map(v => v ?? 0), maximo = Math.max(1,...valores);
       $('cal-grafica').innerHTML = `<div class="frame-label">Error por captura (px)</div><div class="frame grafica-error"><svg viewBox="0 0 600 150" role="img" aria-label="Errores de reproyección por captura"><line x1="0" x2="600" y1="${130-100/maximo}" y2="${130-100/maximo}" class="limite-error"/><text x="4" y="${125-100/maximo}">1 px</text>${valores.map((v,i) => `<rect x="${i*600/valores.length+3}" y="${130-v/maximo*100}" width="${600/valores.length-6}" height="${v/maximo*100}" class="barra-error"><title>Captura ${i+1}: ${v.toFixed(3)} px</title></rect>`).join('')}</svg></div>`;
     }
-    $('cal-error').textContent = rms == null ? 'Aún no hay una medición.' : `${rms.toFixed(3)} px · ${rms < 1 ? 'Calibración buena' : 'Repite las capturas'}`;
+    const diag = c?.calibracion_diagnostico;
+    const estadoDiag = {candidata: 'Candidata', rechazada: 'Rechazada', aceptada: 'Aceptada'}[diag?.estado] || '';
+    $('cal-error').textContent = rms == null ? 'Aún no hay una medición.' : `${rms.toFixed(3)} px · ${estadoDiag || (rms < 1 ? 'Por debajo del límite' : 'No aceptada')} · límite 1 px${diag?.peores?.length ? ' · mayor error: ' + diag.peores.map(p => `captura ${p.captura} (${p.error} px)`).join(', ') : ''}`;
     $('cal-error').className = rms == null ? 'nota' : rms < 1 ? 'okc' : 'errc';
-    if (pagina === 'calibracion') listaLateral.innerHTML = '<h2>Capturas</h2>' + Array.from({length:c?.capturas || 0}, (_,i) => `<div class="layer">Captura ${i+1}</div>`).join('');
+    if (diag?.avisos?.length) $('cal-error').textContent += ' · ' + diag.avisos.join(' ');
+    if (pagina === 'calibracion') {
+      const firma = JSON.stringify([c?.id, cal.sesion, cal.muestras]);
+      if (listaLateral.dataset.firma !== firma) {
+        listaLateral.dataset.firma = firma;
+        listaLateral.innerHTML = '<h2>Capturas</h2>' + (cal.muestras || []).map(m => `<div class="layer${m.excluida ? ' errc' : ''}">${m.imagen ? `<img src="${base}/api/calibracion/${encodeURIComponent(c.id)}/muestra/${m.n}" alt="Captura ${m.n}" style="width:64px;height:auto;margin-right:6px">` : ''}<span class="txt">${m.n}${m.error != null ? ` · ${m.error.toFixed(2)} px` : ''}${m.excluida ? ' · excluida' : ''}<br><small>${escapar(m.inclinacion || '')} · plano ${m.residuo_plano?.toFixed(2)} px${m.residuo_plano > 1.5 ? ' · <span class="errc">no está plano</span>' : ''}</small></span><button class="accion" data-excluir="${m.n}" data-excluida="${m.excluida ? 'false' : 'true'}">${m.excluida ? 'Incluir' : 'Excluir'}</button></div>`).join('');
+        for (const b of listaLateral.querySelectorAll('[data-excluir]')) b.onclick = () => {
+          const excluir = b.dataset.excluida === 'true';
+          const motivo = excluir ? prompt(`Motivo para excluir la captura ${b.dataset.excluir} (se conserva el original):`, '') : 'vuelve a incluirse';
+          if (motivo === null) return;
+          actuar(() => api('camaras/excluir_muestra', {id: c.id, captura: b.dataset.excluir, excluida: excluir, motivo}), excluir ? 'Captura excluida. Puedes volver a incluirla.' : 'Captura incluida de nuevo.');
+        };
+      }
+    }
     $('cal-resultados').textContent = (estado?.camaras || []).map(c => `${c.nombre}: ${c.pose ? 'posición guardada · RMS ' + c.pose.rms.toFixed(3) + ' px' : 'sin posición común'}`).join(' / ');
   }
   async function actualizar() {
+    if (calculandoCalibracion) return;
     const solicitud = ++solicitudEstado;
     try {
       const nuevoEstado = await api('estado');
@@ -422,7 +474,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
       $('adaptadores').innerHTML = estado.adaptadores.map(a => `<div><strong>${escapar(a.nombre)}</strong><span>${a.disponible ? 'Controlador disponible' : 'Falta controlador'}</span><small>${escapar(a.requisito)}</small></div>`).join('');
       pintarCamaras();
     } catch {
-      if (solicitud !== solicitudEstado) return;
+      if (solicitud !== solicitudEstado || calculandoCalibracion) return;
       // Sin servicio no hay autoridad: la ejecución física se invalida aunque no se esté
       // actualizando la mesa.
       veredictoFisico?.(null, null, 'Se perdió la conexión con el servicio: no hay lectura de cámaras que respalde esta mesa.');
@@ -802,8 +854,40 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
     f.rol.value = e.target.value === 'kinect' ? 'profundidad' : e.target.value === 'webcam' ? 'simbolos' : 'ambos';
   };
   $('camara-form').onsubmit = e => { e.preventDefault(); const grabacion = $('camara-form').elements.tipo.value === 'realsense_db3'; actuar(() => api('camaras/agregar', datosFormulario('camara-form')), grabacion ? 'Grabación agregada. Pulsa Reproducir para verla.' : 'Cámara agregada. Pulsa Conectar para empezar.'); };
-  $('calibracion-form').onsubmit = e => { e.preventDefault(); actuar(() => api('camaras/reiniciar_calibracion', datosFormulario('calibracion-form')), 'Sesión iniciada. Cambia el ángulo del tablero entre capturas.'); };
-  for (const accion of ['capturar', 'calcular', 'registrar']) $('cal-' + accion).onclick = () => actuar(() => api('camaras/' + accion, datosFormulario('calibracion-form')), accion === 'capturar' ? 'Captura guardada.' : 'Calibración guardada.');
+  $('cal-calcular').onclick = async () => {
+    if (ocupado) return;
+    const datos = datosFormulario('calibracion-form');
+    ocupado = true; calculandoCalibracion = true;
+    const aviso = $('cal-calculo'), boton = $('cal-calcular');
+    aviso.dataset.local = '1';
+    aviso.className = 'nota';
+    aviso.textContent = 'Calculando… Conserva esta página abierta.';
+    boton.textContent = 'Calculando…';
+    const controles = [...$('calibracion-form').elements, boton, $('cal-capturar'), $('cal-registrar')];
+    const previos = controles.map(c => c.disabled);
+    controles.forEach(c => { c.disabled = true; });
+    try {
+      // El servicio calcula en segundo plano y sigue respondiendo; el resultado llega con el estado.
+      await api('camaras/calcular', datos);
+      aviso.textContent = 'Calculando en el servicio…';
+    } catch (e) {
+      aviso.className = 'error';
+      aviso.textContent = e.name === 'TimeoutError' ? 'El cálculo no respondió en 2 minutos. Puede seguir en curso; no reinicies el servicio. Comprueba el resultado antes de repetir.' : e.message;
+    } finally {
+      calculandoCalibracion = false; ocupado = false; delete aviso.dataset.local;
+      controles.forEach((c, i) => { c.disabled = previos[i]; });
+      boton.textContent = 'Calcular';
+      await actualizar();
+    }
+  };
+  $('calibracion-form').onsubmit = e => {
+    e.preventDefault();
+    // Enter en un campo también envía el formulario: si hay capturas, se pide confirmación.
+    const c = estado?.camaras.find(c => c.id === $('cal-camara').value);
+    if (c?.calibracion?.muestras?.length && !confirm(`Hay ${c.calibracion.muestras.length} capturas en esta sesión. ¿Empezar una sesión nueva? La actual queda guardada en disco.`)) return;
+    actuar(() => api('camaras/reiniciar_calibracion', datosFormulario('calibracion-form')), 'Sesión nueva. La anterior sigue guardada. Cambia el ángulo del tablero entre capturas.');
+  };
+  for (const accion of ['capturar', 'registrar']) $('cal-' + accion).onclick = () => actuar(() => api('camaras/' + accion, datosFormulario('calibracion-form')), accion === 'capturar' ? 'Captura guardada.' : 'Calibración guardada.');
   $('cal-camara').onchange = pintarCalibracion;
   $('gemelo-escena').onchange = e => gemelo('cargar', {escena: e.target.value});
   $('gemelo-paso').onclick = () => gemelo('paso', {incremento: 1});
@@ -847,6 +931,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
   return {
     mostrar(destino) {
       (destino === 'camaras' ? raiz.querySelector('[data-vista="camaras"]') : raiz).append($('vistas-propiedades'));
+      if (pagina === 'calibracion' && destino !== 'calibracion') modoCalibracion(null);
       pagina = destino; const activa = !['mesa', 'ejecucion'].includes(destino); raiz.hidden = !activa;
       for (const s of raiz.querySelectorAll('[data-vista]')) s.hidden = s.dataset.vista !== destino;
       for (const s of raiz.querySelectorAll('[data-prop]')) s.hidden = s.dataset.prop !== destino;

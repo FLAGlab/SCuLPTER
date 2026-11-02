@@ -84,6 +84,24 @@ def crear_handler(estado):
                 elif ruta.startswith('/api/foto/'):
                     foto = estado.vocabulario.ruta_foto(ruta.rsplit('/', 1)[-1])
                     self.enviar(foto.read_bytes(), tipo='image/png' if foto.suffix == '.png' else 'image/jpeg')
+                elif ruta.startswith('/api/calibracion/'):
+                    # /api/calibracion/<camara>/muestra/<n>: la imagen original de esa captura.
+                    partes = ruta.split('/')
+                    with estado.lock:
+                        sesion = estado.sesiones.get(partes[3])
+                    if sesion is None or len(partes) != 6 or partes[4] != 'muestra' or not partes[5].isdigit():
+                        raise ValueError('Muestra desconocida.')
+                    self.enviar(sesion.imagen(int(partes[5])).read_bytes(), tipo='image/png')
+                elif ruta.startswith('/api/imagen/') and ruta.endswith('/calibracion'):
+                    vista = estado.vista_calibracion(ruta.split('/')[3])
+                    if vista is None:
+                        raise ValueError('La cámara no está en modo de calibración o aún no hay imagen.')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Content-Length', str(len(vista['jpeg'])))
+                    self.send_header('X-Secuencia', str(vista['secuencia']))
+                    self.end_headers()
+                    self.wfile.write(vista['jpeg'])
                 elif ruta.startswith('/api/imagen/'):
                     partes = ruta.split('/')
                     pedida = parse_qs(urlparse(self.path).query).get('secuencia', [None])[0]

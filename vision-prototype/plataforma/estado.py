@@ -10,7 +10,7 @@ from reconstruir import instrucciones
 from plataforma.lectura import leer_detallado
 from reconstruir import reducir_resolucion
 from plataforma.dispositivos import Camara, capacidades
-from plataforma.calibracion import Calibracion
+from plataforma.calibracion import LIMITE_RMS, Calibracion
 from plataforma.fusion import CONFIGURACION
 from plataforma.lector import Lector
 from plataforma.sesiones import Dataset
@@ -28,6 +28,10 @@ class Estado:
         self.config = json.loads(ruta.read_text()) if ruta.exists() else {'camaras': [], 'principal': None, 'intrinsecos': {}, 'poses': {}}
         self.camaras = {c['id']: Camara(c, self.procesar) for c in self.config['camaras']}
         self.sesiones = {}
+        self.calibrando = {}
+        self.calculando = {}
+        self.ultimo_calculo = {}
+        self.carpeta_calibracion = self.datos / 'calibracion' / 'sesiones'
         self.mesas = {}
         self.motivos_mesa = {}
         self.dataset = Dataset(self.datos / 'dataset')
@@ -86,6 +90,10 @@ class Estado:
                             fuentes.append({'id': id, 'nombre': camara.config['nombre'], 'estado': camara.estado,
                                             'historial': list(camara.historial), 'intrinsecos': self.config['intrinsecos'].get(id),
                                             'pose': self.config['poses'].get(id)})
+                    if self.calibrando:
+                        # Mientras una cámara se calibra, la lectura sigue pendiente: se fijó al
+                        # entrar en el modo y no se reevalúa con una vista que no reconoce.
+                        continue
                     self.lector.config = self.config['fusion']
                     self.lector.actualizar(fuentes, time.monotonic())
             except Exception as error:
@@ -97,10 +105,107 @@ class Estado:
         temporal.write_text(json.dumps(self.config, ensure_ascii=False, allow_nan=False))
         temporal.replace(self.datos / 'montaje.json')
 
+    def _sesion_calibracion(self, id, datos, nueva=False):
+        """La sesión de calibración de esa cámara: la de memoria, la última guardada con el mismo
+        tablero si no se aceptó, o una nueva. Una sesión anterior nunca se borra del disco."""
+        tablero = (int(datos['columnas']), int(datos['filas']), float(datos['mm']))
+        actual = self.sesiones.get(id)
+        if not nueva and actual is not None and (*actual.tablero, actual.mm) == tablero:
+            return actual
+        carpeta = self.carpeta_calibracion / id
+        if not nueva and carpeta.is_dir():
+            for previa in sorted(carpeta.iterdir(), reverse=True):
+                if not (previa / 'sesion.json').is_file():
+                    continue
+                try:
+                    cal = Calibracion.cargar(previa)
+                except (OSError, ValueError, KeyError):
+                    continue
+                if (*cal.tablero, cal.mm) == tablero and (cal.diagnostico or {}).get('estado') != 'aceptada':
+                    self.sesiones[id] = cal
+                    return cal
+        cal = Calibracion(*tablero, carpeta=carpeta / f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}",
+                          camara=self.camaras[id].config['nombre'])
+        cal.guardar()
+        self.sesiones[id] = cal
+        return cal
+
+    def _modo_calibracion(self, id, activo, datos):
+        """Entrar o salir del modo dedicado. Al entrar, la lectura queda pendiente y se vacía el
+        historial de esa cámara; al salir se reinicia la lectura para que nada anterior valga."""
+        camara = self.camaras[id]
+        if activo:
+            self._sesion_calibracion(id, datos)
+            self.calibrando[id] = {}
+            with camara.lock:
+                camara.historial.clear()
+            self.lector.fallar(f"Calibrando {camara.config['nombre']}: la lectura queda pendiente hasta salir del modo.")
+        elif self.calibrando.pop(id, None) is not None:
+            with camara.lock:
+                camara.historial.clear()
+            self.lector.reiniciar()
+
+    def _procesar_calibracion(self, camara, cuadro):
+        """Vista del modo de calibración: busca el tablero en este cuadro y dibuja sus esquinas en
+        él mismo. No reconoce símbolos ni alimenta la fusión."""
+        id = camara.config['id']
+        sesion = self.sesiones.get(id) or Calibracion()
+        inicio = time.monotonic()
+        deteccion = sesion.detectar(cuadro.color, rapida=True)
+        detectado = time.monotonic()
+        vista = cuadro.color.copy()
+        if deteccion['encontrado']:
+            cv2.drawChessboardCorners(vista, sesion.tablero, deteccion['puntos'], True)
+        jpeg = cv2.imencode('.jpg', vista, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+        fin = time.monotonic()
+        with camara.lock:
+            camara.cuadro = cuadro
+            camara.secuencia += 1
+            camara.estado, camara.error = 'conectada', ''
+            camara.observaciones = []
+            camara.datos = {'ambito': 'camara', 'modo': 'calibracion', 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]],
+                            'estable': False, 'instrucciones': [], 'profundidad': cuadro.profundidad is not None,
+                            'avisos': [], 'compatible': False}
+            secuencia = camara.secuencia
+        if id in self.calibrando:
+            self.calibrando[id] = {'secuencia': secuencia, 'instante': cuadro.instante, 'jpeg': jpeg, 'color': cuadro.color,
+                                   'puntos': deteccion['puntos'],
+                                   'deteccion': {'encontrado': deteccion['encontrado'], 'esperadas': deteccion['esperadas'],
+                                                 'ventana': deteccion['ventana'], 'deteccion_s': round(detectado - inicio, 4),
+                                                 'codificacion_s': round(fin - detectado, 4), 'jpeg_bytes': len(jpeg),
+                                                 'resolucion': [cuadro.color.shape[1], cuadro.color.shape[0]], 'secuencia': secuencia}}
+
+    def vista_calibracion(self, id):
+        vista = self.calibrando.get(id) or {}
+        return {k: vista[k] for k in ('secuencia', 'instante', 'jpeg')} if vista.get('jpeg') else None
+
+    def _calcular(self, id):
+        sesion = self.sesiones[id]
+        try:
+            intr = sesion.calcular()
+            with self.lock:
+                if np.isfinite(intr['rms']) and intr['rms'] < LIMITE_RMS:
+                    self.config['intrinsecos'][id] = intr
+                    self.config['poses'] = {}
+                    sesion.aceptar()
+                    self.lector.reiniciar()
+                    self.guardar()
+                    self.ultimo_calculo[id] = {'estado': 'aceptada', 'mensaje': f"Guardada: error {intr['rms']:.3f} px."}
+                else:
+                    self.ultimo_calculo[id] = {'estado': 'rechazada', 'mensaje': f"No guardada: error {intr['rms']:.3f} px, límite "
+                                               f"{LIMITE_RMS:g} px. Las capturas y el diagnóstico se conservan."}
+        except Exception as error:
+            self.ultimo_calculo[id] = {'estado': 'error', 'mensaje': str(error)[:300]}
+        finally:
+            self.calculando[id] = False
+
     def procesar(self, camara, cuadro):
         with camara.lock:
             if camara.cuadro is not None and cuadro.instante <= camara.cuadro.instante:
                 return
+        if camara.config['id'] in self.calibrando:
+            self._procesar_calibracion(camara, cuadro)
+            return
         if camara.config['rol'] != 'profundidad':
             imagen, lecturas, tinta, diagnostico = leer_detallado(
                 cuadro.color, self.vocabulario, cuadro.profundidad,
@@ -173,7 +278,14 @@ class Estado:
                 item['estable'] = item.get('estable', False) and reciente and item['estado'] == 'conectada'
                 item['intrinsecos'] = intr
                 item['pose'] = self.config['poses'].get(item['id'])
-                item['capturas'] = len(self.sesiones[item['id']].muestras) if item['id'] in self.sesiones else 0
+                sesion_cal = self.sesiones.get(item['id'])
+                item['calibracion_diagnostico'] = sesion_cal.diagnostico if sesion_cal else None
+                item['capturas'] = len(sesion_cal.incluidas()) if sesion_cal else 0
+                vista_cal = self.calibrando.get(item['id'])
+                item['calibracion'] = {**(sesion_cal.resumen() if sesion_cal else {}),
+                                       'modo': vista_cal is not None, 'calculando': bool(self.calculando.get(item['id'])),
+                                       'ultimo_calculo': self.ultimo_calculo.get(item['id']),
+                                       'deteccion': (vista_cal or {}).get('deteccion')}
                 # Paquete de evidencia de un solo cuadro: la imagen que se publica, las cajas
                 # que la fusión usó y la resolución en la que están esas cajas salen todas del
                 # cuadro que la fusión acaba de leer, aunque la cámara ya haya capturado otro.
@@ -315,8 +427,10 @@ class Estado:
                 self._cargar_mesa(camara)
                 camara.iniciar()
             elif accion == 'detener':
+                self._modo_calibracion(id, False, datos)
                 camara.detener()
             elif accion == 'eliminar':
+                self._modo_calibracion(id, False, datos)
                 camara.detener()
                 if camara.hilo and camara.hilo.is_alive():
                     raise ValueError('La captura sigue cerrándose. Espera antes de eliminarla.')
@@ -333,20 +447,37 @@ class Estado:
                     raise ValueError('Elige una cámara que lea símbolos.')
                 self.config['principal'] = id
             elif accion == 'reiniciar_calibracion':
-                self.sesiones[id] = Calibracion(int(datos['columnas']), int(datos['filas']), float(datos['mm']))
+                if self.calculando.get(id):
+                    raise ValueError('Hay un cálculo en curso. Espera a que termine.')
+                self._sesion_calibracion(id, datos, nueva=True)
+                self.ultimo_calculo.pop(id, None)
+            elif accion == 'modo_calibracion':
+                self._modo_calibracion(id, str(datos.get('activo', '')).lower() in ('1', 'true', 'si', 'sí'), datos)
             elif accion == 'capturar':
+                sesion = self.sesiones.get(id) or self._sesion_calibracion(id, datos)
+                vista = self.calibrando.get(id)
+                if vista is not None:
+                    if vista.get('color') is None:
+                        raise ValueError('Todavía no hay imagen de la cámara en el modo de calibración.')
+                    if not vista['deteccion']['encontrado']:
+                        raise ValueError(f"Rechazada: en el último cuadro (#{vista['secuencia']}) no se encontraron las "
+                                         f"{vista['deteccion']['esperadas']} esquinas interiores.")
+                    sesion.capturar(vista['color'], vista['puntos'])
+                else:
+                    sesion.capturar(self.cuadro(id).color)
+            elif accion == 'excluir_muestra':
                 if id not in self.sesiones:
-                    raise ValueError('Inicia una sesión con las medidas de tu tablero.')
-                self.sesiones[id].capturar(self.cuadro(id).color)
+                    raise ValueError('No hay una sesión de calibración para esta cámara.')
+                excluida = str(datos.get('excluida', 'true')).lower() not in ('0', 'false', 'no')
+                self.sesiones[id].excluir(int(datos['captura']), str(datos.get('motivo', '')).strip()[:200] or 'sin motivo', excluida)
             elif accion == 'calcular':
                 if id not in self.sesiones:
                     raise ValueError('Inicia y captura el tablero antes de calcular.')
-                intr = self.sesiones[id].calcular()
-                if not np.isfinite(intr['rms']) or intr['rms'] >= 1:
-                    raise ValueError('Error de reproyección igual o mayor a 1 px. Repite las capturas con más variedad y enfoque.')
-                self.config['intrinsecos'][id] = intr
-                self.config['poses'] = {}
-                self.lector.reiniciar()
+                if self.calculando.get(id):
+                    raise ValueError('Ya hay un cálculo en curso para esta cámara.')
+                self.calculando[id] = True
+                self.ultimo_calculo[id] = {'estado': 'calculando', 'mensaje': 'Calculando…'}
+                threading.Thread(target=self._calcular, args=(id,), daemon=True).start()
             elif accion == 'registrar':
                 self.config['poses'] = self._poses_comunes(datos)
                 self.lector.reiniciar()
