@@ -22,8 +22,6 @@ export function lexemaParametro(p) {
   if (p.tipo === "numero" || p.texto === SIN_LEER) return p.texto;
   const nombre = p.texto.trim().normalize("NFC");
   if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(nombre) && !RESERVADAS.has(nombre) && !nombre.startsWith("sculpt_label_")) return nombre;
-  // A deterministic, collision-free identity for drawings/Unicode labels,
-  // while leaving Scala's lexer and semantics unchanged.
   return "sculpt_label_" + Array.from(nombre, c => c.codePointAt(0).toString(16)).join("_");
 }
 

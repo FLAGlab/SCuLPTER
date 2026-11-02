@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Ejecucion, veredicto, necesitaInterprete, resumenFinal, senalDeCambio, validaElNavegador, veredictoVigente, motivoFisico } from "./modelo/ejecucion.mjs";
+import { Ejecucion, veredicto, necesitaInterprete, resumenFinal, senalDeCambio } from "./modelo/ejecucion.mjs";
 import { Validador } from "./modelo/validacion.mjs";
 import { dibujarEjecucion, dibujarSeguimiento } from "./interfaz/vista-ejecucion.js";
 import { Consola, lineaPeticion, lineasDeResultado, lineaDeNavegacion, lineaDeVeredicto } from "./modelo/consola.mjs";
@@ -13,7 +13,7 @@ import { Montaje, OPERACIONES, SIN_LEER, parametroDesdeTexto } from "./modelo/mo
 import { crearEditor } from "./interfaz/editor-parametro.js";
 import { crearEditorCodigo } from "./interfaz/editor-codigo.js";
 
-import { crearVistas } from "./interfaz/vistas.js";
+import { crearEjemplos } from "./interfaz/ejemplos.js";
 import { Cadena } from "./fisica/cadena.mjs";
 import { montajeEjemplo, montajeDesdeInstrucciones } from "./modelo/ejemplos.mjs";
 
@@ -41,30 +41,6 @@ function invalidarEjecucion(mensaje) {
   if (validador.invalidar() || ejecucion.resultado) { ejecucion.limpiar(); finAnunciado = false; }
   estadoEjecucion = { pendiente: false, mensaje, origen: origenPrograma };
 }
-let veredictoServicio = null, versionServicio = null, motivoServicio = "";
-function fijarVeredictoDelServicio(lectura, veredicto, motivo = "") {
-  // Una respuesta tardía nunca activa una versión vieja: solo entra el veredicto cuya versión
-  // coincide con la lectura confirmada que el servicio publica ahora.
-  const version = lectura?.estado === "confirmada" ? lectura.version : null;
-  const util = veredictoVigente(lectura, veredicto);
-  const razon = motivo || (version ? "" : lectura?.motivo || "");
-  if (version !== versionServicio || util !== veredictoServicio || razon !== motivoServicio) {
-    versionServicio = version; veredictoServicio = util; motivoServicio = razon;
-    if (origenPrograma === "camara") actualizar();
-  }
-}
-function aplicarVeredictoDelServicio() {
-  validador.invalidar();
-  if (!veredictoServicio) {
-    ejecucion.limpiar(); finAnunciado = false;
-    estadoEjecucion = { pendiente: !!versionServicio, mensaje: versionServicio ? "" : motivoServicio, origen: "camara" };
-    return;
-  }
-  if (ejecucion.resultado !== veredictoServicio) {
-    ejecucion.cargar(veredictoServicio); finAnunciado = false;
-  }
-  estadoEjecucion = { pendiente: false, mensaje: "", origen: "camara" };
-}
 function validarPrograma(codigo) {
   const firma = JSON.stringify([codigo, origenPrograma, montaje.bloques.map(b => b.id)]);
   if (!validador.solicitar(firma, codigo + "\n")) return;
@@ -80,9 +56,9 @@ function cambiarPagina(destino) {
   pagina = destino; $("editor-parametro").close();
   document.body.classList.toggle("modo-ejecucion", pagina === "ejecucion");
   document.body.classList.toggle("modo-vistas", !["mesa", "ejecucion"].includes(pagina));
-  vistas.mostrar(pagina);
+  ejemplos.mostrar(pagina);
   for (const id of ["panel-ejecucion", "pilas-ejecucion", "barra-ejecucion"]) $(id).hidden = pagina !== "ejecucion";
-  for (const nombre of ["mesa", "ejecucion", "ejemplos", "gemelo", "camaras", "calibracion", "simbolos", "piezas"]) {
+  for (const nombre of ["mesa", "ejecucion", "ejemplos"]) {
     const boton = $("pagina-" + nombre); boton.classList.toggle("on", nombre === pagina);
     boton.querySelector(".marca").textContent = nombre === pagina ? "✓" : "";
     boton.setAttribute("aria-current", nombre === pagina ? "page" : "false");
@@ -93,7 +69,7 @@ function cambiarPagina(destino) {
 }
 $("pagina-mesa").onclick = () => cambiarPagina("mesa");
 $("pagina-ejecucion").onclick = () => cambiarPagina("ejecucion");
-for (const nombre of ["ejemplos", "gemelo", "camaras", "calibracion", "simbolos", "piezas"]) $("pagina-" + nombre).onclick = () => cambiarPagina(nombre);
+$("pagina-ejemplos").onclick = () => cambiarPagina("ejemplos");
 const ACCIONES = { reiniciar: "reiniciar", atras: "atrás", siguiente: "siguiente", todo: "ejecutar todo" };
 for (const [id, accion] of [["ej-reiniciar", "reiniciar"], ["ej-atras", "atras"], ["ej-siguiente", "siguiente"], ["ej-todo", "todo"]]) {
   $(id).onclick = () => {
@@ -180,8 +156,7 @@ const aviso = mensaje => {
   $("aviso").textContent = mensaje;
 };
 const alturaLibre = p => p.tipo === "operacion" ? 7.5 : 1.5;
-let incertidumbreCamara = '';
-function manual() { incertidumbreCamara = ''; if (gravedadActiva) alternarGravedad(false); $("camara-activa").checked = false; vistas.detenerLectura(); }
+function manual() { if (gravedadActiva) alternarGravedad(false); $("camara-activa").checked = false; }
 function bloqueSiguiente() { return montaje.bloques[ejecucion.actual?.siguiente]?.id ?? null; }
 function atenuar(objeto, bloqueId) {
   if (pagina !== "ejecucion" || bloqueId === bloqueSiguiente()) return;
@@ -251,8 +226,6 @@ function encuadrar() {
   const distancia = Math.max(tamano.x / proporcion, tamano.z, tamano.y, 95) / media * 1.6;
   controles.target.copy(centro);
   camara.position.copy(centro).add(new THREE.Vector3(0.28, 0.88, 0.82).normalize().multiplyScalar(distancia));
-  // Los paneles flotan sobre el lienzo: desplaza la cámara para que el
-  // programa quede centrado en el hueco que dejan, no en el lienzo entero.
   const porPixel = media * distancia / canvas.clientHeight;
   const lateral = new THREE.Vector3().subVectors(camara.position, controles.target).cross(camara.up).normalize();
   const desplazamiento = lateral.multiplyScalar(visible.centro * porPixel);
@@ -333,7 +306,6 @@ function reconstruirEscena() {
     pieza.rotation.y = a.angulo; pieza.userData.bloqueId = a.id; atenuar(pieza, a.id); objetos.add(pieza);
   }
 
-  // Preserve the calibrated pipeline's virtual loop edges.
   montaje.bloques.forEach((b, i) => {
     if (!b.virtual || b.instruccion.destino == null) return;
     const previo = montaje.bloques.slice(0, i).reverse().find(x => !x.virtual);
@@ -513,17 +485,10 @@ function reconstruirPanel() {
   const hechos = {
     bloques: codigo ? montaje.bloques.length : 0,
     pendientes: [...montaje.pendientes(), ...(origenPrograma === "manual" ? pendientesConexiones(montaje) : [])],
-    incertidumbre: origenPrograma === "camara"
-      ? incertidumbreCamara || motivoFisico({ veredicto: veredictoServicio, version: versionServicio, motivo: motivoServicio })
-      : "",
     moviendo: !!(arrastre?.movido || nuevoArrastre?.movido),
     origen: origenPrograma,
   };
-  // Autoridad única: el programa leído de las cámaras lo valida el servicio y su veredicto llega
-  // con la versión del montaje. La página no vuelve a decidir si es válido; solo recorre la traza
-  // que el servicio le entrega. El worker se reserva para programas construidos a mano.
-  if (!validaElNavegador(hechos)) aplicarVeredictoDelServicio();
-  else if (necesitaInterprete(hechos)) validarPrograma(codigo);
+  if (necesitaInterprete(hechos)) validarPrograma(codigo);
   else invalidarEjecucion(veredicto(hechos).detalle);
   const fallo = veredicto({ ...hechos, validando: estadoEjecucion.pendiente, resultado: ejecucion.resultado });
   const resumen = fallo.clase === "valido" ? resumenFinal(ejecucion.resultado, etiquetas) : "";
@@ -817,8 +782,6 @@ function objetivo(evento) {
   return null;
 }
 function mejorEncaje(id, evento) {
-  // Pick in screen space: the loose piece and the socket sit at different
-  // heights, so a horizontal drag plane alone misses elevated sockets.
   const r = canvas.getBoundingClientRect();
   let mejor = null, distancia = 1;
   for (const e of encajes) {
@@ -899,23 +862,17 @@ canvas.addEventListener("dblclick", e => {
   else if (hit?.fijacion != null) { manual(); fijaciones.splice(hit.fijacion, 1); actualizar(); aviso("Cuña retirada."); }
 });
 
-function reemplazarProgramaDesdeCamara(instrucciones, etiquetas = {}) {
+function reemplazarProgramaDesdeCamara(instrucciones) {
   if (arrastre || nuevoArrastre || $("editor-parametro").open) return;
   origenPrograma = "camara";
-  incertidumbreCamara = "";
   const nuevo = new Montaje();
-  const fisicas = instrucciones.filter(i => i.posicion);
-  const origen = fisicas.length ? [fisicas.reduce((s, i) => s + i.posicion[0], 0) / fisicas.length, fisicas.reduce((s, i) => s + i.posicion[1], 0) / fisicas.length, Math.min(...fisicas.map(i => i.posicion[2]))] : [0, 0, 0];
-  const convertir = p => [p[0] - origen[0], p[2] - origen[2], -(p[1] - origen[1])];
   instrucciones.forEach((i, n) => {
-    if (i.virtual) { nuevo.bloques.push({ id: nuevo.id(), virtual: true, instruccion: i }); return; }
     const capacidad = Math.max(OPERACIONES[i.token]?.[0] || 1, Math.min(2, i.operandos.length));
-    const b = nuevo.agregarBloque(i.token, capacidad, i.posicion ? convertir(i.posicion) : [0, 0, n * 80]);
-    if (i.direccion) b.angulo = Math.atan2(i.direccion[1], i.direccion[0]);
+    const b = nuevo.agregarBloque(i.token, capacidad, [0, 0, n * 80]);
     i.operandos.slice(0, capacidad).forEach((valor, j) => {
       if (valor === SIN_LEER) return;
-      const p = nuevo.agregarParametro(parametroDesdeTexto(etiquetas[valor] || valor)); nuevo.acoplar(p.id, b.id, j);
-      if (i.posiciones_operandos?.[j]) { p.observada = convertir(i.posiciones_operandos[j]); p.observada[1] += 23; }
+      const p = nuevo.agregarParametro(parametroDesdeTexto(valor));
+      nuevo.acoplar(p.id, b.id, j);
     });
   });
   montaje = nuevo; seleccionado = null; bloqueActivo = null;
@@ -926,8 +883,8 @@ function conectarCamara() {
   if (!$("camara-activa").checked || (websocketCamara && websocketCamara.readyState < 2)) return;
   const ws = new WebSocket("ws://localhost:8765");
   websocketCamara = ws;
-  ws.onopen = () => { $("estado-camara").textContent = "Cámara: conectada"; $("estado-camara").className = "conectado"; };
-  ws.onclose = () => { $("estado-camara").textContent = "Cámara: desconectada"; $("estado-camara").className = "desconectado"; setTimeout(conectarCamara, 2000); };
+  ws.onopen = () => { $("estado-camara").textContent = "Conectado al lector."; $("estado-camara").className = "conectado"; };
+  ws.onclose = () => { $("estado-camara").textContent = "Sin conexión con el lector."; $("estado-camara").className = "desconectado"; setTimeout(conectarCamara, 2000); };
   ws.onerror = () => ws.close();
   ws.onmessage = e => {
     if (!$("camara-activa").checked || !listo) return;
@@ -1056,7 +1013,7 @@ function alternarGravedad(activa = !gravedadActiva) {
   gravedadActiva = activa; document.body.classList.toggle('modo-gravedad', activa);
   $('ver-gravedad').textContent = activa ? 'Salir de gravedad' : 'Ver con gravedad';
   $('ver-gravedad').setAttribute('aria-pressed', String(activa)); $('repetir-gravedad').hidden = !activa;
-  if (activa) { vistas.detenerLectura(); $('camara-activa').checked = false; }
+  if (activa) $('camara-activa').checked = false;
   reconstruirEscena();
   if (activa) encuadrar();
   aviso(activa ? 'Agarra un extremo del programa, levántalo y suéltalo para ver cómo cae cada tramo.' : 'Posiciones originales restauradas.');
@@ -1064,43 +1021,23 @@ function alternarGravedad(activa = !gravedadActiva) {
 $('ver-gravedad').onclick = () => alternarGravedad();
 $('repetir-gravedad').onclick = () => { if (gravedadActiva) repetirGravedad(); };
 let montajeGuardado = null;
-const vistas = crearVistas({
-  navegar: cambiarPagina,
+const ejemplos = crearEjemplos({
   verGravedad: () => alternarGravedad(true),
   cargarEjemplo(ejemplo, destino) {
     if (!listo || arrastre || nuevoArrastre) return false;
     if (!montajeGuardado) montajeGuardado = { montaje, fijaciones, origenPrograma };
-    vistas.detenerLectura(); $("camara-activa").checked = false;
+    $("camara-activa").checked = false;
     montaje = montajeEjemplo(ejemplo); fijaciones = []; origenPrograma = "manual";
     seleccionado = null; bloqueActivo = null; invalidarEjecucion("Cargando ejemplo.");
     cambiarPagina(destino); return true;
   },
   restaurar() {
     if (!montajeGuardado || !listo || arrastre || nuevoArrastre) return false;
-    vistas.detenerLectura(); $("camara-activa").checked = false;
+    $("camara-activa").checked = false;
     ({ montaje, fijaciones, origenPrograma } = montajeGuardado); montajeGuardado = null;
     seleccionado = null; bloqueActivo = null; invalidarEjecucion("Montaje restaurado.");
     cambiarPagina("mesa"); return true;
   },
-  inventario() {
-    const b = montaje.bloques.filter(b => !b.virtual);
-    const p = [...montaje.piezas.values()];
-    return { bloque_1_param: b.filter(b => b.capacidad === 1).length, bloque_2_param: b.filter(b => b.capacidad === 2).length,
-      parametro: p.filter(p => p.tipo === 'operacion').length, ficha_parametro: p.filter(p => p.tipo === 'parametro').length,
-      conector: conexionesValidas(montaje).length, tuerca: b.length, cuna: fijaciones.length };
-  },
-  incertidumbre(texto) {
-    if (origenPrograma !== 'camara') return;
-    incertidumbreCamara = texto;
-    invalidarEjecucion(texto);
-    reconstruirPanel();
-    reconstruirEscena();
-  },
-  recibir(instrucciones, etiquetas) {
-    if (!listo || arrastre || nuevoArrastre || $("editor-parametro").open) return false;
-    reemplazarProgramaDesdeCamara(instrucciones, etiquetas); return true;
-  },
-  veredictoFisico(lectura, veredicto, motivo) { fijarVeredictoDelServicio(lectura, veredicto, motivo); },
 });
 editorCodigo = crearEditorCodigo({
   codigoMesa: () => montaje.pendientes().length ? null : montaje.programa().map(i => [i.token, ...i.operandos].join(" ")).join("\n"),
@@ -1119,7 +1056,6 @@ editorCodigo = crearEditorCodigo({
   },
   navegar: accion => $("ej-" + accion).click(),
 });
-$("abrir-camaras").onclick = () => cambiarPagina("camaras");
 $("camara-activa").addEventListener("change", () => { if ($("camara-activa").checked) conectarCamara(); else websocketCamara?.close(); });
 
 async function iniciar() {
@@ -1140,7 +1076,6 @@ async function iniciar() {
       const ahora = performance.now(), dt = (ahora - instanteGravedad) / 1000; instanteGravedad = ahora;
       avanzarGravedad(dt);
     }
-    // Suavizar el fantasma: seguir el puntero al instante se siente nervioso.
     if (nuevoArrastre?.fantasma && nuevoArrastre.destino) {
       nuevoArrastre.fantasma.position.lerp(nuevoArrastre.destino, 0.35);
       const giro = nuevoArrastre.giro ?? 0;

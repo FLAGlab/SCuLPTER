@@ -74,7 +74,7 @@ Se definen como variables en `:root`. Hay que copiarlos tal cual de `reference/h
 ```
 
 - El lienzo ocupa **toda** la ventana. Los paneles van `position: absolute` encima, con `top/bottom: 12px`.
-- **Panel izquierdo**, de arriba abajo: nombre de la app, lista de **Páginas** (la actual con ✓) y la lista de la página (Programa, Capturas, Vocabulario o Lista de piezas).
+- **Panel izquierdo**, de arriba abajo: nombre de la app, lista de **Páginas** (la actual con ✓) y la lista de la página (Programa o Ejemplos).
 - **Panel derecho:** propiedades de lo seleccionado en secciones separadas por `--line`. No tiene pestañas.
 - **Barra de herramientas:** abajo, centrada sobre el área visible del lienzo, a 16 px del borde. Su contenido cambia según la página.
 
@@ -87,7 +87,7 @@ Cada uno tiene su clase en `styles.css`. Hay que reusar esos nombres o mapearlos
 - **Barra de bloques** (`.toolbar` + `.blk`): "Parámetro libre" y luego los grupos Binarias | Unarias y mixtas | selector de tamaño + Aritméticas, separados por divisores de 1 px. Cada bloque es un botón de 36 px de alto con el color de su familia; el texto es blanco, salvo en amarillo, donde es oscuro.
 - **Selección en la mesa:** marco de 1.5 px en `--sel` alrededor del bloque, cuatro tiradores blancos de 8 px con borde azul y, debajo, una etiqueta azul con la instrucción en mono (`MOV circle triangle`). En Ejecución no lleva tiradores y la etiqueta dice `Siguiente: …`.
 - **Popover de parámetro** (`.popover`): flota junto al bloque seleccionado, sin oscurecer el fondo. Tiene 272 px de ancho y contiene Contenido (select), Nombre (campo en foco), ayuda, Dibujo (lienzo gris con "Borrar") y los botones Cancelar (secundario) y Guardar (primario).
-- **Estado** (`.status`): ícono de 16 px, título en 600 y texto de apoyo gris. El ícono puede ser un ✓ verde (válido o calibración buena) o un ! rojo (lectura incompleta o error).
+- **Estado** (`.status`): ícono de 16 px, título en 600 y texto de apoyo gris. El ícono puede ser un ✓ verde (válido) o un ! rojo (lectura incompleta o error).
 - **Marco en el lienzo** (`.frame` + `.frame-label`): nombre gris encima y contenido blanco sin borde ni radio, como un frame de Figma.
 - **Torre de pila** (`.tower`): fichas grises de 88 × 44 px apiladas de abajo arriba. El tope es blanco con borde de 2 px en `--text`, lleva una base negra de 6 px y debajo la forma y el nombre de la pila.
 - **Traza** (`.trace`): tabla con columnas #, Instrucción y una por pila. La fila recién ejecutada va en `--sel-bg-2` y las pendientes en `--text-3`. La notación es `[3, 5]`, con el tope a la derecha.
@@ -114,18 +114,9 @@ La referencia visual es `reference/1-mesa.png`.
 | Mesa | `1-mesa.png` | bloques | Programa | Instrucción N, Texto SCuLPT, Intérprete, Cámara |
 | (Mesa + popover) | `2-parametro.png` | bloques | Programa | igual que Mesa |
 | Ejecución | `3-ejecucion.png` | Reiniciar, Atrás, **Siguiente paso**, Ejecutar todo, "Paso X de N" | Programa con ▶ en la siguiente | Siguiente instrucción, Traza, Valor vacío |
-| Cámaras | `4-camaras.png` | ninguna | Programa reconstruido | Resultado, Lecturas, Cámara |
-| Calibración | `5-calibracion.png` | ninguna | Capturas | Tablero, Capturas, Error de reproyección |
-| Símbolos | `6-simbolos.png` | ninguna | Vocabulario | Símbolo, Fotos de referencia, Se parece a |
-| Piezas | `7-piezas.png` | ninguna | Lista de piezas | Imprimir, Total |
+| Ejemplos | ninguna | ninguna | Ejemplos | Ejemplo, Montaje |
 
-Notas por página:
-
-- **Cámaras:** las detecciones se dibujan sobre la imagen con el color de la familia del bloque, y la etiqueta muestra lexema y puntaje (`PUSH 0.82`). Lo que no se leyó va en `--err` con la etiqueta "Sin leer". El veredicto separa **"Lectura incompleta"** (falla de la visión; el programa no se ejecuta) de **"Programa inválido"** (lo decide el intérprete).
-- **Calibración:** tablero de 9 × 6 esquinas y cuadros de 25 mm, con al menos 15 capturas. La calibración es buena si el error de reproyección está por debajo de 1 px, y hay que repetirla si se mueve una cámara.
-- **Símbolos:** una lectura se acepta si su puntaje supera 0.45 y le saca al menos 0.08 al segundo símbolo más parecido. Un dibujo que no se ha registrado aparece como "Sin registrar".
-- **Piezas:** separa las piezas que computan (bloques y fichas) de las de estructura (conectores, conector en T y bases). Estas últimas no cambian el programa.
-- Las páginas cuya funcionalidad todavía no existe en el código **se muestran en la lista, pero no se implementan** hasta que haya datos reales (regla 3).
+La lectura con cámaras no tiene página propia: la hace `lector/` y el simulador recibe el programa en la Mesa al activar «Leer desde las cámaras». Una ranura que no se leyó llega como "Sin leer".
 
 ## 9. Semántica de SCuLPT que la interfaz debe respetar
 

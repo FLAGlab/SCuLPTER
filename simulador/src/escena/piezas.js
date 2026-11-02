@@ -1,7 +1,5 @@
 import * as THREE from "three";
 
-// Parameter v4.stl is a printing layout, not a single parameter. These are
-// the individual 20 mm tiles in its original (uncentred) XY coordinates.
 const FICHAS = {
   POP: [0, -22], MOV: [25, 25], DUP: [0, 60], JMP: [0, 30],
   CMP: [25, 0], "?": [30, -25], MOD: [30, -50],
@@ -18,7 +16,6 @@ export function separarOperaciones(lamina) {
     for (let i = 0; i < posiciones.count; i += 3) {
       const vertices = [0, 1, 2].map(j => new THREE.Vector3().fromBufferAttribute(posiciones, i + j));
       if (!vertices.every(v => v.x >= x - 0.001 && v.x <= x + 20.001 && v.y >= y - 0.001 && v.y <= y + 20.001)) continue;
-      // The symbol is recessed 1 mm into the front face (z = 5).
       const destino = vertices.every(v => v.z >= 3.999) && vertices.some(v => v.z < 4.999) ? grabado : cuerpo;
       for (const v of vertices) destino.push(v.x, v.y, v.z);
     }
@@ -34,15 +31,11 @@ export function separarOperaciones(lamina) {
     geometria.userData.compartida = true;
     resultado[token] = geometria;
   }
-  // PUSH uses the same arrow as POP, pointing down instead of up.
   resultado.PUSH = resultado.POP.clone().rotateZ(Math.PI);
   resultado.PUSH.computeBoundingBox();
   return resultado;
 }
 
-// Native millimetres: the STL is upside down (its mounting faces have -Y
-// normals). Rotate it without reflecting it; the operation socket is the origin
-// in X/Z and the bottom of the structural block rests on the table.
 export function prepararBloque(geometria, capacidad) {
   const zOperacion = capacidad === 2 ? 50 : 30;
   geometria.applyMatrix4(new THREE.Matrix4().set(
@@ -58,8 +51,6 @@ export function prepararBloque(geometria, capacidad) {
 }
 
 export function posicionEncaje(slot) {
-  // Operation: ball tip y=29.5, neck in the open slot, plate base y=37.
-  // Parameters: magnets on the lower surface (raw STL y=2), 20 mm pitch.
   return new THREE.Vector3(slot === -1 ? 0 : 20 * (slot + 1), slot === -1 ? 37 : 23, 0);
 }
 
@@ -117,10 +108,6 @@ export function crearFichaOperando(contenido) {
   return grupo;
 }
 
-// conector.stl is a printing sheet with two parts: a threaded plug
-// (21 x 25.5 x 21) and the ball-ended shaft (15 x 42.5 x 11) that actually
-// joins two blocks. Keep the shaft, lay it along +X with the ball at +X, and
-// centre it on the origin. Flow runs flat end to ball, as the language defines.
 export const LARGO_CONECTOR = 42.5;
 export function prepararConector(lamina) {
   const posiciones = lamina.getAttribute("position");
@@ -145,9 +132,6 @@ export function prepararConector(lamina) {
   return geometria;
 }
 
-// Nut v7 and Wedge v3 are fixtures: they hold the assembly together and never
-// change the program. Per BlockAnatomy, the nut screws onto the block's Screw
-// and the wedge drops into the Wedge Slot on the block's side.
 export function prepararTuerca(geometria) {
   geometria.applyMatrix4(new THREE.Matrix4().set(
     0, 0, 1, -23.75,
