@@ -52,7 +52,6 @@ body {
 .sec-head .tools { margin-left: auto; display: flex; gap: 2px; color: var(--text-2); }
 .sec-head .tools span { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; }
 
-/* panel izquierdo */
 .app { padding: 16px 16px 14px; border-bottom: 1px solid var(--line); }
 .app .name { font-weight: 600; font-size: 13px; }
 .app .sub { color: var(--text-2); margin-top: 3px; }
@@ -70,7 +69,6 @@ body {
 .miss-txt { color: var(--err); font-family: var(--sans); font-weight: 500; }
 .tok.miss { border-color: var(--err); border-style: dashed; }
 
-/* panel derecho */
 .tabs { display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .tab { height: 28px; padding: 0 10px; display: flex; align-items: center; border-radius: 5px; font-weight: 600; color: var(--text-2); }
 .tab.on { background: var(--field); color: var(--text); }
@@ -96,7 +94,6 @@ body {
 .cam-row { margin-bottom: 10px; } .cam-row:last-child { margin-bottom: 0; }
 .cam-row .t2 { color: var(--text-2); margin-top: 2px; }
 
-/* barra de bloques */
 .toolbar {
   position: absolute; bottom: 16px; left: 700px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px;
   background: var(--panel); border-radius: 13px; padding: 6px;
@@ -111,11 +108,9 @@ body {
 .tb-select .ms { color: var(--text-2); }
 .hint { position: absolute; bottom: 74px; left: 700px; transform: translateX(-50%); color: var(--text-2); white-space: nowrap; }
 
-/* marcos en el lienzo */
 .frame-label { position: absolute; color: var(--text-2); font-weight: 500; }
 .frame { position: absolute; overflow: hidden; background: #fff; }
 
-/* ventana flotante */
 .popover {
   position: absolute; width: 272px; background: var(--panel); border-radius: 13px;
   box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 2px 5px rgba(0,0,0,.12), 0 10px 24px rgba(0,0,0,.14);
@@ -132,7 +127,6 @@ body {
 .pad { height: 150px; background: var(--field); border-radius: 5px; display: grid; place-items: center; }
 .pop-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
-/* páginas y listas */
 .pages { padding-bottom: 8px; }
 .pg { height: 28px; display: flex; align-items: center; gap: 6px; margin: 0 8px; padding: 0 8px; border-radius: 5px; color: var(--text); }
 .pg .ms { width: 16px; color: var(--text); }
@@ -147,11 +141,9 @@ body {
 .note { color: var(--text-2); margin-top: 10px; line-height: 17px; }
 .fld .pv { font-size: 12.5px; }
 
-/* barra de ejecución */
 .tb-tool.primary { background: var(--sel); color: #fff; }
 .tb-count { padding: 0 10px 0 4px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* pilas */
 .stacks { display: flex; justify-content: center; align-items: flex-end; gap: 120px; padding-bottom: 36px; background: #fff; }
 .tower { display: flex; flex-direction: column; align-items: center; }
 .stack { display: flex; flex-direction: column-reverse; gap: 6px; min-height: 40px; }
@@ -161,7 +153,6 @@ body {
 .plate { width: 120px; height: 6px; border-radius: 3px; background: var(--text); margin-top: 8px; }
 .tname { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 14px; }
 
-/* traza */
 .trace { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .trace th { text-align: left; font-weight: 500; color: var(--text-2); padding: 0 4px 6px; }
 .trace td { padding: 5px 3px; border-top: 1px solid var(--line); white-space: nowrap; }
@@ -174,7 +165,6 @@ body {
 .bar.sm { flex: 1; height: 4px; }
 .bar.sm > div { background: var(--text-2); }
 
-/* símbolos */
 .grid-frame { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; padding: 16px; height: 254px; }
 .scard { border-radius: 8px; background: var(--field); display: flex; flex-direction: column; align-items: center; padding: 16px 8px 14px; }
 .scard.selected { box-shadow: 0 0 0 2px var(--sel); background: #fff; }
@@ -193,7 +183,6 @@ body {
 .simrow .pv { width: 92px; }
 .simrow .right-num { margin-left: 0; width: 30px; text-align: right; }
 
-/* piezas */
 .pieces { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px; }
 .pcard { border-radius: 8px; background: var(--field); padding: 10px 12px 14px; }
 .pimg { height: 150px; display: grid; place-items: center; overflow: hidden; }
