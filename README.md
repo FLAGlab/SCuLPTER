@@ -51,3 +51,13 @@ Lastly, start the local web server with Vite using
 ```
 npm run dev
 ```
+
+### Reading physical programs
+
+`lector/` reads a SCuLPT program built with the physical blocks, using several webcams, and sends it to the 3D simulator in `simulador/`, where the Scala interpreter validates it. See [lector/README.md](lector/README.md).
+
+```
+python3 -m pip install -r lector/requirements.txt
+npm run build:simulator
+python3 -m lector --camaras 0 1 2 3
+```

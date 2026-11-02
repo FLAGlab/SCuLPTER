@@ -1,0 +1,6 @@
+numpy
+opencv-python
+websockets>=12
+ultralytics
+torch
+pytest
