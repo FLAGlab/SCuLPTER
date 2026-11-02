@@ -13,10 +13,10 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
     "build:simulator": "node scripts/build-simulator.mjs",
-    "test:simulator": "node --test vision-prototype/simulador_3d/tests/*.test.mjs",
-    "test:vision": "PYTHONPATH=vision-prototype python3 -m unittest discover -s vision-prototype/tests",
-    "test:mesa": "node --test vision-prototype/simulador_3d/tests/*.spec.mjs",
-    "test": "npm run build:simulator && npm run test:simulator && npm run test:vision"
+    "test": "npm run build:simulator && npm run test:simulador && npm run test:lector",
+    "test:simulador": "node --test simulador/tests/*.test.mjs",
+    "test:lector": "python3 -m pytest lector/tests",
+    "test:mesa": "node --test simulador/tests/*.spec.mjs"
   },
   "devDependencies": {
     "@scala-js/vite-plugin-scalajs": "^1.0.0",

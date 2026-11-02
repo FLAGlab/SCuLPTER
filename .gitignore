@@ -1,47 +1,38 @@
-# sbt target folders
+# sbt y Scala
 target/
+.metals
+.bsp
+.bloop
+.scala-build/
 
-# eclipse project files
+# editores
 /.settings
 /.classpath
 /.project
-.metals
-.bsp
 .vscode
-.bloop
-node_modules/
 
-# Deploy artifacts
+# node
+node_modules/
 dist/
 
-CLAUDE.md
-# scala-cli build cache (created when running vision-prototype/ejecutor_scala)
-.scala-build/
-
-# LaTeX build files (vision-prototype/docs); the .tex and the .pdf stay tracked
-*.aux
-*.log
-*.out
-*.toc
-*.lof
-*.lot
-*.bbl
-*.blg
-*.bcf
-*.run.xml
-*.nav
-*.snm
-*.vrb
-*.fls
-*.fdb_latexmk
-*.synctex.gz
-*.synctex(busy)
-
-vision-prototype/**/*.md
-vision-prototype/tests/
-vision-prototype/test_points/
-*.test.mjs
-*.test.js
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
 
 # macOS
 .DS_Store
+
+# simulador
+simulador/generado/
+simulador/capturas/
+
+# lector: fotos, fichas inscritas y modelos entrenados viven en cada máquina
+lector/datos/
+lector/modelos/
+runs/
+
+# copia local de la primera versión (está en la rama primeraversion)
+vision-prototype/
+
+CLAUDE.md

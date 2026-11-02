@@ -83,7 +83,7 @@ export function crearVistas({ navegar, cargarEjemplo, restaurar, inventario, rec
         ${seccion('Se parece a', '<button class="accion" id="simbolo-probar">Probar esta foto</button><div id="simbolo-prueba"></div><p class="nota">La lectura requiere similitud de 0.45 o más y una diferencia de 0.08 o más con el segundo símbolo.</p>')}
       </div>
       <div data-prop="piezas" hidden>${seccion('Imprimir', '<p id="modelo-descripcion"></p><a class="accion primaria" id="modelo-descarga" download>Descargar STL original</a><p class="nota">Se descarga la geometría original. Las fichas de operaciones comparten una lámina; los parámetros editables de la mesa son representaciones.</p>')}${seccion('Total', '<div id="inventario"></div>')}</div>
-      <div id="servicio-seccion" class="sec"><div class="sec-head">Servicio de visión</div><div id="servicio-estado" role="status"></div><div id="servicio-ayuda" hidden><p class="nota">Desde vision-prototype inicia <code>python3 servicio.py</code>.</p><button class="accion" id="servicio-reintentar">Volver a conectar</button></div></div>
+      <div id="servicio-seccion" class="sec"><div class="sec-head">Servicio de visión</div><div id="servicio-estado" role="status"></div><div id="servicio-ayuda" hidden><p class="nota">Desde la raíz inicia <code>python3 -m lector</code>.</p><button class="accion" id="servicio-reintentar">Volver a conectar</button></div></div>
     </aside>`;
 
   const laboratorio = crearLaboratorio($('laboratorio-vision'), { api, base });
