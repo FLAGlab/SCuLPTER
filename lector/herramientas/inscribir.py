@@ -1,13 +1,3 @@
-"""Guarda ejemplos de una ficha para reconocerla después.
-
-    python3 -m lector.herramientas.inscribir --tipo operaciones --nombre PUSH
-    python3 -m lector.herramientas.inscribir --tipo parametros --nombre triangulo
-    python3 -m lector.herramientas.inscribir --tipo parametros --nombre -10
-
-Espacio congela la imagen; luego se arrastra un recuadro ajustado a la cara de la ficha y
-Enter lo guarda. Conviene guardar 3 a 5 ejemplos desde ángulos distintos. q sale.
-"""
-
 import argparse
 from pathlib import Path
 

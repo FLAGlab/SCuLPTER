@@ -1,9 +1,3 @@
-"""Lectura de una sola cámara: de las cajas del detector a una secuencia de instrucciones.
-
-Una instrucción leída es una lista de ranuras. La primera ranura es la operación y las
-demás son los parámetros. Cada ranura guarda sus candidatos: [(nombre, parecido), ...].
-"""
-
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -21,7 +15,6 @@ class Bloque:
 
 
 def agrupar(cajas):
-    """Asigna cada cara (operación o parámetro) al bloque que contiene su centro."""
     bloques = [Bloque(caja) for caja in cajas if caja.clase == "bloque"]
     for cara in cajas:
         if cara.clase == "bloque":
@@ -42,7 +35,6 @@ def agrupar(cajas):
 
 
 def ordenar_parametros(bloque):
-    """En un bloque se lee la operación y luego los parámetros, del más cercano al más lejano."""
     if bloque.operacion is None:
         return
     inicio = np.array(bloque.operacion.centro)
@@ -50,7 +42,6 @@ def ordenar_parametros(bloque):
 
 
 def direccion(bloque):
-    """Hacia dónde se lee el bloque: de la operación hacia sus parámetros."""
     if bloque.operacion is None or not bloque.parametros:
         return None
     inicio = np.array(bloque.operacion.centro)
@@ -63,12 +54,6 @@ def direccion(bloque):
 
 
 def encadenar(bloques):
-    """Ordena los bloques de una cadena.
-
-    Se parte del bloque más alejado del centro (es un extremo) y se va al vecino más cercano
-    que no se ha visitado. Al final se revisa el sentido: el recorrido debe ir en la misma
-    dirección en que se lee cada bloque; si no, se invierte.
-    """
     if len(bloques) < 2:
         return list(bloques)
 

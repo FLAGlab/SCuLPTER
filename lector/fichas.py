@@ -3,22 +3,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Las operaciones se inscriben una vez. Los parámetros se inscriben al empezar cada
-# sesión, porque cada persona dibuja sus propias etiquetas.
-#
-#   datos/fichas/operaciones/PUSH/1.png
-#   datos/fichas/parametros/triangulo/1.png
-#   datos/fichas/parametros/-10/1.png
 TIPOS = ["operaciones", "parametros"]
 
 
 class Modelo:
-    """DINOv2 pequeño: convierte un recorte en un vector de 384 números.
-
-    No se entrena. Dos recortes de la misma ficha quedan cerca, aunque cambie la luz
-    o el ángulo.
-    """
-
     def __init__(self):
         import torch
 
@@ -49,7 +37,6 @@ class Fichas:
                 self.ejemplos[tipo].append((nombre, vector))
 
     def candidatos(self, recorte, tipo, cuantos=3):
-        """Las fichas inscritas más parecidas al recorte, de la más a la menos parecida."""
         if recorte.size == 0 or not self.ejemplos[tipo]:
             return []
         vector = self.modelo(recorte)

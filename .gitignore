@@ -1,38 +1,29 @@
-# sbt y Scala
 target/
 .metals
 .bsp
 .bloop
 .scala-build/
 
-# editores
 /.settings
 /.classpath
 /.project
 .vscode
 
-# node
 node_modules/
 dist/
 
-# python
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# macOS
 .DS_Store
 
-# simulador
 simulador/generado/
 simulador/capturas/
 
-# lector: fotos, fichas inscritas y modelos entrenados viven en cada máquina
 lector/datos/
 lector/modelos/
 runs/
 
-# copia local de la primera versión (está en la rama primeraversion)
-vision-prototype/
 
 CLAUDE.md

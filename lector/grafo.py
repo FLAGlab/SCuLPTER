@@ -1,14 +1,3 @@
-"""Grafo de dependencias.
-
-Las fuentes son las lecturas de cada cámara. Los nodos derivados se calculan a partir de
-sus entradas: votación, programa estable, veredicto. Cuando una fuente cambia, se
-recalculan solo los nodos que dependen de ella, en orden topológico y una sola vez cada
-uno, así ningún nodo ve una mezcla de valores viejos y nuevos (no hay glitches).
-
-Las cámaras publican desde sus hilos en una cola; un único hilo propaga. El estado del
-grafo nunca se toca desde dos hilos a la vez.
-"""
-
 import queue
 import threading
 
@@ -24,8 +13,6 @@ class Nodo:
 
 class Grafo:
     def __init__(self):
-        # Un nodo solo puede depender de nodos creados antes, así que el orden de creación
-        # ya es un orden topológico.
         self.nodos = []
         self.cola = queue.Queue()
         self.al_cambiar = {}
@@ -44,7 +31,6 @@ class Grafo:
         self.al_cambiar[nodo] = funcion
 
     def publicar(self, fuente, valor):
-        """Se puede llamar desde cualquier hilo."""
         self.cola.put((fuente, valor))
 
     def propagar(self, fuente, valor):
@@ -78,12 +64,6 @@ class Grafo:
 
 
 class Estable:
-    """Deja pasar un programa solo cuando se repite `veces` votaciones seguidas.
-
-    Mientras la persona mueve una pieza, las lecturas cambian en cada cuadro y no llegan
-    a estabilizarse; así no se valida un programa a medio armar.
-    """
-
     def __init__(self, veces=3):
         self.veces = veces
         self.candidato = None

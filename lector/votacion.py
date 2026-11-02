@@ -1,10 +1,3 @@
-"""Votación entre cámaras sobre el programa leído, no sobre la geometría.
-
-Cada cámara entrega su propia secuencia de instrucciones (ver lectura.py). Las secuencias
-se alinean como en ROVER (Fiscus, 1997), el método con que se combinan varios
-reconocedores de voz, y luego se vota posición por posición.
-"""
-
 from collections import Counter
 from itertools import product
 
@@ -19,7 +12,6 @@ def primero(ranura):
 
 
 def parecido(a, b):
-    """Qué tan probable es que dos instrucciones leídas sean la misma pieza."""
     if primero(a[0]) == HUECO or primero(b[0]) == HUECO:
         puntos = 0
     elif primero(a[0]) == primero(b[0]):
@@ -33,8 +25,6 @@ def parecido(a, b):
 
 
 def alinear(referencia, otra):
-    """Para cada instrucción de la referencia, la instrucción de la otra lectura que le
-    corresponde, o None si esa cámara no la vio. Es Needleman-Wunsch."""
     n, m = len(referencia), len(otra)
     tabla = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(1, n + 1):
@@ -64,11 +54,6 @@ def alinear(referencia, otra):
 
 
 def votar_ranura(ranuras):
-    """Suma el parecido de cada candidato en todas las cámaras.
-
-    Devuelve [(nombre, puntaje, apoyo), ...] de mayor a menor puntaje, donde apoyo es
-    cuántas cámaras lo pusieron en primer lugar.
-    """
     puntaje = Counter()
     apoyo = Counter()
     for ranura in ranuras:
@@ -82,11 +67,6 @@ def votar_ranura(ranuras):
 
 
 def votar(lecturas):
-    """Une las lecturas de todas las cámaras en una sola secuencia.
-
-    La lectura más larga sirve de referencia. Una instrucción que solo vio una cámara más
-    corta se pierde; con las cámaras rodeando la mesa, la más larga suele verlo todo.
-    """
     lecturas = [lectura for lectura in lecturas if lectura]
     if not lecturas:
         return []
@@ -112,12 +92,6 @@ def votar(lecturas):
 
 
 def elegir(votada, es_valida, minimo):
-    """Los nombres finales de una instrucción.
-
-    Si alguna ranura no tiene al menos `minimo` cámaras de acuerdo, queda como HUECO y la
-    instrucción no se valida. Si todas están firmes, se prueban las combinaciones de los tres
-    mejores candidatos, de mayor a menor puntaje, y se queda la primera que el lenguaje acepta.
-    """
     incompleta = False
     for ranura in votada:
         if not ranura or ranura[0][2] < minimo:

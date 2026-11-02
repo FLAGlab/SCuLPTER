@@ -5,7 +5,6 @@ from lector.fichas import Fichas
 
 
 def modelo_por_color(recorte):
-    """Un modelo de mentira: el vector es el color promedio."""
     vector = recorte.reshape(-1, 3).mean(axis=0) + 1
     return vector / np.linalg.norm(vector)
 

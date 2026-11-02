@@ -1,15 +1,3 @@
-"""Lectura en vivo de programas SCuLPT con varias cámaras.
-
-    python3 -m lector --camaras 0 1 2 3
-
-Grafo de dependencias:
-
-    camara 0 ─┐
-    camara 1 ─┤
-    camara 2 ─┼─► votacion ─► programa (estable) ─► veredicto (Scala) ─► simulador
-    camara 3 ─┘
-"""
-
 import argparse
 import threading
 import time
@@ -23,7 +11,6 @@ from lector.lenguaje import Lenguaje, codigo
 from lector.servidor import Servidor
 from lector.votacion import HUECO, elegir, votar
 
-# Lecturas separadas por más que esto no se mezclan en una misma votación.
 VENTANA = 0.3
 
 

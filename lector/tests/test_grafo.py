@@ -15,7 +15,6 @@ def test_un_nodo_se_calcula_una_vez_por_cambio_aunque_tenga_dos_caminos():
     grafo.derivado("suma", suma, doble, triple)
     grafo.propagar(fuente, 1)
     grafo.propagar(fuente, 2)
-    # Nunca se mezcla el doble de un valor con el triple del otro.
     assert vistos == [(2, 3), (4, 6)]
 
 

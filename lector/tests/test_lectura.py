@@ -5,8 +5,6 @@ from lector.lectura import agrupar, encadenar, leer, ordenar_parametros
 
 
 def bloque(x, y, operacion_a_la_izquierda=True):
-    """Un bloque de 100x30 con su operación y dos parámetros, leído de izquierda a derecha
-    o al revés."""
     cajas = [Caja("bloque", x, y, x + 100, y + 30)]
     posiciones = [x + 5, x + 40, x + 70]
     if not operacion_a_la_izquierda:
@@ -18,8 +16,6 @@ def bloque(x, y, operacion_a_la_izquierda=True):
 
 
 class FichasFalsas:
-    """Reconoce cada cara por su posición x en el cuadro, para no depender del modelo."""
-
     def candidatos(self, recorte, tipo):
         return [(f"{tipo[:2]}{int(recorte.mean())}", 1.0)]
 

@@ -40,7 +40,7 @@ npm run build:simulator      # genera simulador/generado/interprete.js
 4. **Fichas.** Las 12 operaciones una vez, y los parámetros de cada sesión:
    `python3 -m lector.herramientas.inscribir --tipo operaciones --nombre PUSH`
    `python3 -m lector.herramientas.inscribir --tipo parametros --nombre triangulo`
-5. **En vivo.** `python3 -m lector --camaras 0 1 2 3`, abre http://localhost:8000 y activa «Cámara» en la Mesa.
+5. **En vivo.** `python3 -m lector --camaras 0 1 2 3`, abre http://localhost:8000 y activa «Leer desde las cámaras» en la Mesa.
 
 ## Cámaras (Logitech C270)
 

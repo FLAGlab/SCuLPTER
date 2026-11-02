@@ -25,8 +25,6 @@ class Caja:
 
 
 class Detector:
-    """YOLO entrenado con las tres clases de CLASES (ver herramientas/entrenar.py)."""
-
     def __init__(self, ruta_modelo, confianza_minima=0.4):
         from ultralytics import YOLO
 

@@ -1,18 +1,3 @@
-"""Entrena el detector con las fotos etiquetadas en formato YOLO.
-
-    python3 -m lector.herramientas.entrenar --datos lector/datos/dataset
-
-La carpeta del dataset debe tener esta forma (en CVAT, exportar como «Ultralytics YOLO
-Detection»):
-
-    dataset/
-      images/train/*.jpg   labels/train/*.txt
-      images/val/*.jpg     labels/val/*.txt
-
-Las fotos de validación deben ser de otra sesión que las de entrenamiento; si no, el
-resultado sale inflado. El modelo final queda en lector/modelos/detector.pt.
-"""
-
 import argparse
 import shutil
 from pathlib import Path
@@ -38,7 +23,6 @@ def main():
     parametros = argparse.ArgumentParser()
     parametros.add_argument("--datos", default="lector/datos/dataset")
     parametros.add_argument("--epocas", type=int, default=80)
-    # Las caras miden unos 45 px en una foto de 1280; a menos resolución se pierden.
     parametros.add_argument("--tamano", type=int, default=1280)
     parametros.add_argument("--dispositivo", default="mps", help="mps en Mac, 0 con GPU, cpu si no")
     args = parametros.parse_args()

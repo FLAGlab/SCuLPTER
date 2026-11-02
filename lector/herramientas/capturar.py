@@ -1,11 +1,3 @@
-"""Toma fotos con todas las cámaras a la vez para armar el dataset del detector.
-
-    python3 -m lector.herramientas.capturar --sesion mesa-limpia --camaras 0 1 2 3
-
-Espacio guarda una foto por cámara. q sale. Cambia el montaje, la luz y los objetos
-alrededor entre fotos: el detector solo aprende lo que ve aquí.
-"""
-
 import argparse
 import time
 from pathlib import Path

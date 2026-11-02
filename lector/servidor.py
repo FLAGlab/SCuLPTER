@@ -12,7 +12,6 @@ SIMULADOR = Path(__file__).parents[1] / "simulador"
 PUERTO_WEB = 8000
 PUERTO_SOCKET = 8765
 
-# Así marca el simulador una ranura que todavía no se pudo leer.
 SIN_LEER = "<sin leer>"
 
 
@@ -25,8 +24,6 @@ class Archivos(SimpleHTTPRequestHandler):
 
 
 class Servidor:
-    """Sirve el simulador y le manda cada versión nueva del programa por websocket."""
-
     def __init__(self):
         self.conexiones = set()
         self.candado = threading.Lock()
@@ -38,7 +35,7 @@ class Servidor:
 
         socket = serve(self._atender, "localhost", PUERTO_SOCKET)
         threading.Thread(target=socket.serve_forever, daemon=True).start()
-        print(f"Simulador en http://localhost:{PUERTO_WEB} (activa «Cámara» en la Mesa)")
+        print(f"Simulador en http://localhost:{PUERTO_WEB} (activa «Leer desde las cámaras» en la Mesa)")
 
     def _atender(self, conexion):
         with self.candado:

@@ -3,18 +3,11 @@ import time
 
 import cv2
 
-# La C270 entrega como máximo 1280x720. En MJPG cuatro cámaras caben en USB 2.0;
-# sin comprimir (YUYV) no.
 ANCHO = 1280
 ALTO = 720
 
 
 class Camara:
-    """Lee una webcam en su propio hilo y guarda solo el último cuadro.
-
-    Así nunca se procesa un cuadro viejo que quedó en el búfer del driver.
-    """
-
     def __init__(self, indice):
         self.indice = indice
         self.captura = cv2.VideoCapture(indice)

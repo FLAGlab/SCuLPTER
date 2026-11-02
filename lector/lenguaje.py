@@ -8,12 +8,6 @@ INTERPRETE = Path(__file__).parents[1] / "simulador" / "generado" / "interprete.
 
 
 class Lenguaje:
-    """El lenguaje lo decide Scala, no Python.
-
-    Se abre un solo proceso de node con el intérprete compilado y se le pregunta en serie:
-    el Lexer y el Parser de Scala guardan estado global y no aceptan llamadas en paralelo.
-    """
-
     def __init__(self):
         if not INTERPRETE.exists():
             raise RuntimeError(f"Falta {INTERPRETE}. Ejecuta: npm run build:simulator")
@@ -29,7 +23,6 @@ class Lenguaje:
         self.validas = {}
 
     def analizar(self, codigo):
-        # El Parser rechaza "ADD a" como última línea si no termina en salto de línea.
         if not codigo.endswith("\n"):
             codigo += "\n"
         with self.candado:
