@@ -26,29 +26,46 @@ def mosaico(cuadros, indices):
     return np.vstack(filas)
 
 
+def guardar(carpeta, numero, cuadros, indices):
+    for cuadro, indice in zip(cuadros, indices):
+        if cuadro is not None:
+            cv2.imwrite(str(carpeta / f"{numero:04d}_cam{indice}.jpg"), cuadro)
+
+
 def main():
     parametros = argparse.ArgumentParser()
     parametros.add_argument("--sesion", default=time.strftime("%Y-%m-%d-%H%M"))
     parametros.add_argument("--camaras", type=int, nargs="+", default=[0, 1, 2, 3])
+    parametros.add_argument("--cada", type=float, default=1.5, help="segundos entre fotos en ráfaga")
     args = parametros.parse_args()
 
     carpeta = CARPETA / args.sesion
     carpeta.mkdir(parents=True, exist_ok=True)
     camaras = abrir(args.camaras)
     numero = len(list(carpeta.glob("*.jpg"))) // len(camaras)
+    rafaga = False
+    ultima = 0.0
 
     while True:
         cuadros = [camara.ultimo()[0] for camara in camaras]
-        cv2.imshow("capturar", mosaico(cuadros, args.camaras))
+        vista = mosaico(cuadros, args.camaras)
+        estado = f"{numero} fotos"
+        if rafaga:
+            estado += "  RAFAGA (r para parar)"
+        cv2.putText(vista, estado, (12, vista.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+        cv2.imshow("capturar", vista)
+
         tecla = cv2.waitKey(30) & 0xFF
         if tecla == ord("q"):
             break
-        if tecla == ord(" "):
-            for cuadro, indice in zip(cuadros, args.camaras):
-                if cuadro is not None:
-                    cv2.imwrite(str(carpeta / f"{numero:04d}_cam{indice}.jpg"), cuadro)
-            print(f"foto {numero} guardada en {carpeta}")
+        if tecla == ord("r"):
+            rafaga = not rafaga
+
+        ahora = time.time()
+        if tecla == ord(" ") or (rafaga and ahora - ultima >= args.cada):
+            guardar(carpeta, numero, cuadros, args.camaras)
             numero += 1
+            ultima = ahora
 
     for camara in camaras:
         camara.cerrar()

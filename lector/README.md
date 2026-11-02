@@ -31,16 +31,16 @@ npm run build:simulator      # genera simulador/generado/interprete.js
 
 ## Flujo de trabajo
 
-1. **Fotos.** Con las cámaras ya montadas:
-   `python3 -m lector.herramientas.capturar --sesion mesa-limpia`
-   Cambia montajes, luz y objetos alrededor entre fotos. Usa sesiones distintas para entrenar y para validar.
-2. **Etiquetas.** En CVAT, una caja por `bloque`, por `operacion` y por `parametro`.
-   Exporta como «Ultralytics YOLO Detection» en `lector/datos/dataset/`.
+1. **Fotos.** `python3 -m lector.herramientas.capturar --sesion s1-mesa-limpia`
+   Espacio guarda una foto por cámara; `r` activa la ráfaga (una foto de cada cámara cada 1.5 s) mientras mueves las piezas.
+2. **Primeras etiquetas a mano.** Unas 50 fotos en CVAT, con una caja por `bloque`, `operacion` y `parametro`. Exporta como «Ultralytics YOLO Detection» en `lector/datos/dataset/`.
 3. **Detector.** `python3 -m lector.herramientas.entrenar`. Queda en `lector/modelos/detector.pt`.
-4. **Fichas.** Las 12 operaciones una vez, y los parámetros de cada sesión:
+4. **El resto, corrigiendo en vez de dibujar.** `python3 -m lector.herramientas.prellenar --fotos lector/datos/fotos/s2-objetos` crea `s2-objetos-etiquetas.zip`; en CVAT se importa como «YOLO 1.1» sobre las mismas fotos y solo se corrigen las cajas. Se vuelve a entrenar y se repite.
+5. **Fichas.** Las 13 operaciones una vez, y los parámetros de cada sesión:
    `python3 -m lector.herramientas.inscribir --tipo operaciones --nombre PUSH`
    `python3 -m lector.herramientas.inscribir --tipo parametros --nombre triangulo`
-5. **En vivo.** `python3 -m lector --camaras 0 1 2 3`, abre http://localhost:8000 y activa «Leer desde las cámaras» en la Mesa.
+6. **Ver los recuadros.** `python3 -m lector.herramientas.ver` muestra las 4 cámaras con cada bloque numerado en el orden de lectura y cada ficha con su nombre. Con `--fotos carpeta --salida carpeta-vista` dibuja sobre fotos guardadas.
+7. **En vivo.** `python3 -m lector --camaras 0 1 2 3`, abre http://localhost:8000 y activa «Leer desde las cámaras» en la Mesa.
 
 ## Cámaras (Logitech C270)
 
